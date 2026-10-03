@@ -1,0 +1,32 @@
+# Секреты
+.env
+
+# База данных
+*.db
+*.db-journal
+
+# Кеш Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Прокси
+proxies.txt
+working_proxies.txt
+
+# Виртуальное окружение
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
