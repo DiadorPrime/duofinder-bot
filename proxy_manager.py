@@ -9,7 +9,7 @@ PROXY_FILE = "proxies.txt"
 WORKING_FILE = "working_proxies.txt"
 TEST_URL = "https://api.telegram.org"
 TIMEOUT = 8  # секунд на проверку одного прокси
-MAX_PROXIES = 100  # сколько прокси скачивать (не тысячи)
+MAX_PROXIES = 300  # сколько прокси скачивать (не тысячи)
 
 # GitHub-источники (пробуем по очереди)
 PROXY_SOURCES = [
@@ -159,3 +159,40 @@ async def get_working_proxy() -> str | None:
     """Возвращает лучший рабочий прокси или None."""
     best = await find_best_proxies(limit=5)
     return best[0] if best else None
+
+async def get_all_working_proxies(limit: int = 20) -> list[str]:
+    """
+    Возвращает все рабочие прокси, отсортированные по скорости.
+    Используется для ротации.
+    """
+    proxies = load_proxies()
+
+    if not proxies:
+        print("❌ Нет прокси для проверки.")
+        return []
+
+    print(f"🔍 Проверяю {len(proxies)} прокси...")
+
+    tasks = [check_proxy(p) for p in proxies]
+    results = await asyncio.gather(*tasks)
+
+    working = [r for r in results if r["works"]]
+    working.sort(key=lambda r: r["time"])
+
+    print(f"✅ Рабочих: {len(working)} из {len(proxies)}")
+    for r in working[:limit]:
+        print(f"   ⚡ {r['proxy']} — {r['time']} сек")
+
+    if working:
+        with open(WORKING_FILE, "w", encoding="utf-8") as f:
+            for r in working:
+                f.write(r["proxy"] + "\n")
+        print(f"💾 Сохранено в {WORKING_FILE}")
+
+    return [r["proxy"] for r in working]
+
+
+async def check_single_proxy(proxy_url: str) -> bool:
+    """Быстрая проверка одного прокси. True — рабочий."""
+    result = await check_proxy(proxy_url)
+    return result["works"]

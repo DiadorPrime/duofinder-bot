@@ -505,7 +505,11 @@ async def cmd_admin_help(message: Message):
         "/reply — ответить последнему\n"
         "/inbox — входящие\n"
         "/chat &lt;id&gt; — диалог\n"
-        "/unread — непрочитанные\n",
+        "/unread — непрочитанные\n"
+        "<b>Оценки (для пользователей):</b>\n"
+        "/rate &lt;id&gt; — оценить напарника\n"
+        "/my_rating — статистика оценок\n"
+        "/recent_ratings — последние оценки\n\n",
         parse_mode="HTML",
         reply_markup=back_to_menu()
     )

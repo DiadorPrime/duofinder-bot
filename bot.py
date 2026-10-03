@@ -9,9 +9,14 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.exceptions import TelegramNetworkError
 
 from database import (
-    init_db, init_analytics, migrate_db, init_games, init_messages
+    init_db, init_analytics, migrate_db, init_games, init_messages,
+    init_ratings_extended
 )
-from proxy_manager import download_proxies_from_github, find_best_proxies
+from proxy_manager import (
+    download_proxies_from_github,
+    get_all_working_proxies,
+    check_single_proxy,
+)
 
 load_dotenv()
 
@@ -20,7 +25,14 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 logging.basicConfig(level=logging.INFO)
 
 
-async def try_start_bot(proxy_url: str | None) -> bool:
+# ===== ЗАПУСК БОТА С ПРОКСИ =====
+
+async def run_bot_with_proxy(proxy_url: str | None):
+    """
+    Запускает бота с указанным прокси.
+    Возвращает True, если бот упал по сети (нужна смена прокси).
+    Возвращает False, если бот упал по другой причине.
+    """
     if proxy_url:
         print(f"🚀 Запуск с прокси: {proxy_url}")
         session = AiohttpSession(proxy=proxy_url)
@@ -31,6 +43,7 @@ async def try_start_bot(proxy_url: str | None) -> bool:
     bot = Bot(token=BOT_TOKEN, session=session)
     dp = Dispatcher(storage=MemoryStorage())
 
+    # Перезагружаем модули, чтобы router'ы создались заново
     import importlib
     import handlers
     import admin
@@ -42,16 +55,22 @@ async def try_start_bot(proxy_url: str | None) -> bool:
 
     try:
         await dp.start_polling(bot)
-        return True
+        # Если polling завершился без ошибки — выходим
+        return False
     except TelegramNetworkError as e:
         print(f"❌ Сетевая ошибка: {str(e)[:150]}")
-        return False
+        return True
     except Exception as e:
         print(f"❌ Ошибка: {str(e)[:150]}")
         return False
     finally:
-        await bot.session.close()
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
 
+
+# ===== ГЛАВНЫЙ ЦИКЛ С АВТОСМЕНОЙ =====
 
 async def main():
     init_db()
@@ -59,44 +78,100 @@ async def main():
     init_analytics()
     init_games()
     init_messages()
+    init_ratings_extended()  # ← добавляем
 
     print()
     print("=" * 60)
-    print("Попытка 1: прямое подключение")
+    print("🎮 DuoFinder Bot — запуск с автосменой прокси")
     print("=" * 60)
 
-    if await try_start_bot(None):
-        return
+    cycle = 0
 
-    print()
-    print("=" * 60)
-    print("Попытка 2: через прокси с GitHub")
-    print("=" * 60)
+    while True:
+        cycle += 1
 
-    if not download_proxies_from_github():
-        print()
-        print("❌ Не удалось скачать прокси с GitHub.")
-        return
-
-    proxies = await find_best_proxies(limit=10)
-
-    if not proxies:
-        print()
-        print("❌ Рабочих прокси не найдено.")
-        return
-
-    for i, proxy in enumerate(proxies, 1):
         print()
         print("=" * 60)
-        print(f"Попытка {i + 2}: {proxy}")
+        print(f"ЦИКЛ #{cycle}")
         print("=" * 60)
 
-        if await try_start_bot(proxy):
+        # Попытка 1: прямое подключение (вдруг VPN)
+        print()
+        print("Попытка: прямое подключение")
+        print("-" * 60)
+        network_error = await run_bot_with_proxy(None)
+
+        if not network_error:
+            # Если упал не по сети — что-то другое, выходим
+            print("⚠️ Бот остановился (не сетевая ошибка). Выход.")
             return
 
-    print()
-    print("❌ Все прокси перебраны.")
+        # Попытка 2: скачиваем свежие прокси
+        print()
+        print("Скачиваю свежие прокси с GitHub...")
+        print("-" * 60)
+        if not download_proxies_from_github():
+            print("❌ Не удалось скачать прокси. Ждём 60 сек...")
+            await asyncio.sleep(60)
+            continue
+
+        # Проверяем все прокси
+        proxies = await get_all_working_proxies(limit=20)
+
+        if not proxies:
+            print("❌ Рабочих прокси не найдено. Ждём 60 сек...")
+            await asyncio.sleep(60)
+            continue
+
+        print()
+        print(f"✅ Найдено {len(proxies)} рабочих прокси. Пробую по очереди...")
+        print("-" * 60)
+
+        # Пробуем прокси по очереди
+        switched = False
+
+        for i, proxy in enumerate(proxies, 1):
+            print()
+            print(f"Прокси {i}/{len(proxies)}")
+            print("-" * 60)
+
+            # Быстрая проверка перед запуском
+            print(f"⏱  Проверяю прокси...")
+            if not await check_single_proxy(proxy):
+                print(f"❌ Прокси не работает, пропускаю")
+                continue
+
+            print(f"✅ Прокси рабочий, запускаю бота...")
+            network_error = await run_bot_with_proxy(proxy)
+
+            if not network_error:
+                # Упал не по сети — выходим
+                print("⚠️ Бот остановился (не сетевая ошибка). Выход.")
+                return
+
+            # Прокси умер во время работы — пробуем следующий
+            print(f"⚠️ Прокси умер во время работы. Переключаюсь на следующий...")
+            switched = True
+
+            # Небольшая пауза перед следующим
+            await asyncio.sleep(2)
+
+        # Все прокси перебраны
+        if switched:
+            print()
+            print("🔄 Все прокси перебраны. Скачиваю свежие...")
+            await asyncio.sleep(10)
+        else:
+            print()
+            print("❌ Ни один прокси не сработал. Ждём 60 сек...")
+            await asyncio.sleep(60)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print()
+        print("=" * 60)
+        print("👋 Бот остановлен пользователем (Ctrl + C)")
+        print("=" * 60)

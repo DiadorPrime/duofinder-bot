@@ -229,3 +229,104 @@ def filter_summary_menu():
         ]
     )
     return kb
+
+# ===== ОЦЕНКА НАПАРНИКА =====
+
+def rating_stars_menu(to_user_id: int):
+    """Меню выбора звёзд."""
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⭐", callback_data=f"rating:stars:1:{to_user_id}"),
+                InlineKeyboardButton(text="⭐⭐", callback_data=f"rating:stars:2:{to_user_id}"),
+                InlineKeyboardButton(text="⭐⭐⭐", callback_data=f"rating:stars:3:{to_user_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="⭐⭐⭐⭐", callback_data=f"rating:stars:4:{to_user_id}"),
+                InlineKeyboardButton(text="⭐⭐⭐⭐⭐", callback_data=f"rating:stars:5:{to_user_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="❌ Отмена", callback_data="rating:cancel"),
+            ],
+        ]
+    )
+    return kb
+
+
+def rating_tags_menu(to_user_id: int, stars: int, selected_tags: list = None):
+    """
+    Меню выбора тегов.
+    selected_tags — список уже выбранных тегов.
+    """
+    if selected_tags is None:
+        selected_tags = []
+
+    # Позитивные теги
+    positive = [
+        ("🎯 Хороший саппорт", "🎯 Хороший саппорт"),
+        ("😄 Веселый", "😄 Веселый"),
+        ("🧠 Ментор", "🧠 Ментор"),
+        ("🤝 Командный", "🤝 Командный"),
+    ]
+
+    # Негативные теги
+    negative = [
+        ("😡 Токсик", "😡 Токсик"),
+        ("🚪 Ливер", "🚪 Ливер"),
+        ("🤐 Молчал", "🤐 Молчал"),
+    ]
+
+    keyboard = []
+
+    # Позитивные
+    row = []
+    for label, tag in positive:
+        if tag in selected_tags:
+            label = "✅ " + label
+        row.append(InlineKeyboardButton(
+            text=label,
+            callback_data=f"rating:tag_toggle:{tag}:{to_user_id}:{stars}"
+        ))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    # Негативные
+    row = []
+    for label, tag in negative:
+        if tag in selected_tags:
+            label = "✅ " + label
+        row.append(InlineKeyboardButton(
+            text=label,
+            callback_data=f"rating:tag_toggle:{tag}:{to_user_id}:{stars}"
+        ))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    # Кнопки управления
+    keyboard.append([
+        InlineKeyboardButton(
+            text="✅ Сохранить",
+            callback_data=f"rating:save:{to_user_id}:{stars}"
+        ),
+    ])
+    keyboard.append([
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=f"rating:back:{to_user_id}"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="rating:cancel"),
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def rating_done_menu():
+    """Меню после сохранения оценки."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 В меню", callback_data="rating:menu")],
+        ]
+    )

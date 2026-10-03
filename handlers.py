@@ -9,12 +9,15 @@ from database import (
     log_event, update_last_seen,
     save_message, get_inbox, get_conversation, mark_as_read,
     count_unread, get_last_sender,
-    find_partner_filtered
+    find_partner_filtered,
+    add_rating_v2, get_user_ratings, get_user_rating_stats,
+    has_rated_today, recalculate_rating
 )
 from keyboards import (
     main_menu, games_menu, roles_menu, time_menu, rating_menu,
     filter_main_menu, filter_roles_menu, filter_time_menu,
-    filter_rating_menu, filter_results_menu, filter_summary_menu
+    filter_rating_menu, filter_results_menu, filter_summary_menu,
+    rating_stars_menu, rating_tags_menu, rating_done_menu
 )
 
 router = Router()
@@ -39,6 +42,10 @@ class FilterForm(StatesGroup):
     rating = State()
     all = State()
 
+class RatingForm(StatesGroup):
+    stars = State()
+    tags = State()
+
 
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext):
@@ -55,9 +62,17 @@ async def cmd_start(message: Message, state: FSMContext):
     await message.answer(
         f"Привет, {message.from_user.first_name}! 👋\n\n"
         "Я помогу найти напарника для игр.\n\n"
-        "Сначала заполни профиль: /profile\n"
-        "Потом ищи напарника: /find",
-        reply_markup=main_menu()
+        "📋 <b>Команды:</b>\n"
+        "/profile — заполнить профиль\n"
+        "/find — найти напарника\n"
+        "/me — твой профиль\n"
+        "/rate &lt;id&gt; — оценить напарника\n"
+        "/my_rating — твоя статистика\n"
+        "/recent_ratings — последние оценки\n"
+        "/inbox — входящие\n"
+        "/cancel — отмена",
+        reply_markup=main_menu(),
+        parse_mode="HTML"
     )
 
 
@@ -645,17 +660,270 @@ async def cmd_unread(message: Message):
     else:
         await message.answer(f"📬 Непрочитанных сообщений: <b>{count}</b>", parse_mode="HTML")
 
-
-# ===== ОЦЕНКА =====
+# ===== ОЦЕНКА НАПАРНИКА =====
 
 @router.message(Command("rate"))
-async def cmd_rate(message: Message):
-    await message.answer("Оценить можно после игры. Пока функция в разработке.")
+async def cmd_rate(message: Message, state: FSMContext):
+    """Начинает процесс оценки напарника."""
+    parts = message.text.split()
+
+    if len(parts) < 2:
+        await message.answer(
+            "⭐ <b>Оценка напарника</b>\n\n"
+            "Использование: <code>/rate &lt;user_id&gt;</code>\n\n"
+            "Например: <code>/rate 123456789</code>\n\n"
+            "Где взять ID? Смотри в /find или /inbox — там указан ID напарника.",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        to_user_id = int(parts[1])
+    except ValueError:
+        await message.answer("❌ ID должен быть числом.")
+        return
+
+    if to_user_id == message.from_user.id:
+        await message.answer("❌ Нельзя оценивать себя.")
+        return
+
+    # Проверяем, что пользователь существует
+    target = get_profile(to_user_id)
+    if not target:
+        await message.answer("❌ Пользователь не найден.")
+        return
+
+    # Проверяем, не оценивал ли уже сегодня
+    if has_rated_today(message.from_user.id, to_user_id):
+        await message.answer(
+            f"⚠️ Ты уже оценивал @{target[1]} сегодня.\n"
+            "Можно оценивать одного игрока раз в день."
+        )
+        return
+
+    target_name = target[1] or str(to_user_id)
+
+    await state.set_state(RatingForm.stars)
+    await state.update_data(to_user_id=to_user_id, tags=[])
+
+    await message.answer(
+        f"⭐ <b>Оценка @{target_name}</b>\n\n"
+        f"Сколько звёзд?",
+        parse_mode="HTML",
+        reply_markup=rating_stars_menu(to_user_id)
+    )
 
 
-@router.callback_query(F.data.startswith("rate:"))
-async def process_rate(callback: CallbackQuery):
-    _, stars, to_user_id = callback.data.split(":")
-    add_rating(callback.from_user.id, int(to_user_id), int(stars))
-    await callback.message.edit_text(f"✅ Спасибо! Ты поставил {stars} звёзд.")
+@router.callback_query(F.data == "rating:cancel")
+async def rating_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("❌ Оценка отменена.")
     await callback.answer()
+
+
+@router.callback_query(F.data == "rating:menu")
+async def rating_menu_back(callback: CallbackQuery):
+    await callback.message.delete()
+    await callback.message.answer("Главное меню.", reply_markup=main_menu())
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("rating:stars:"))
+async def rating_stars(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split(":")
+    stars = int(parts[2])
+    to_user_id = int(parts[3])
+
+    await state.update_data(stars=stars, to_user_id=to_user_id, tags=[])
+    await state.set_state(RatingForm.tags)
+
+    target = get_profile(to_user_id)
+    target_name = target[1] if target else str(to_user_id)
+
+    stars_str = "⭐" * stars
+
+    await callback.message.edit_text(
+        f"⭐ <b>Оценка @{target_name}</b>\n\n"
+        f"Звёзды: {stars_str}\n\n"
+        f"Выбери теги (можно несколько):",
+        parse_mode="HTML",
+        reply_markup=rating_tags_menu(to_user_id, stars, [])
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("rating:tag_toggle:"))
+async def rating_tag_toggle(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split(":")
+    tag = parts[2]
+    to_user_id = int(parts[3])
+    stars = int(parts[4])
+
+    data = await state.get_data()
+    tags = data.get("tags", [])
+
+    if tag in tags:
+        tags.remove(tag)
+    else:
+        tags.append(tag)
+
+    await state.update_data(tags=tags)
+
+    target = get_profile(to_user_id)
+    target_name = target[1] if target else str(to_user_id)
+
+    stars_str = "⭐" * stars
+    tags_str = ", ".join(tags) if tags else "не выбрано"
+
+    await callback.message.edit_text(
+        f"⭐ <b>Оценка @{target_name}</b>\n\n"
+        f"Звёзды: {stars_str}\n"
+        f"Теги: {tags_str}\n\n"
+        f"Выбери теги (можно несколько):",
+        parse_mode="HTML",
+        reply_markup=rating_tags_menu(to_user_id, stars, tags)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("rating:back:"))
+async def rating_back(callback: CallbackQuery, state: FSMContext):
+    to_user_id = int(callback.data.split(":")[2])
+
+    await state.set_state(RatingForm.stars)
+    await state.update_data(to_user_id=to_user_id, tags=[])
+
+    target = get_profile(to_user_id)
+    target_name = target[1] if target else str(to_user_id)
+
+    await callback.message.edit_text(
+        f"⭐ <b>Оценка @{target_name}</b>\n\n"
+        f"Сколько звёзд?",
+        parse_mode="HTML",
+        reply_markup=rating_stars_menu(to_user_id)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("rating:save:"))
+async def rating_save(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split(":")
+    to_user_id = int(parts[2])
+    stars = int(parts[3])
+
+    data = await state.get_data()
+    tags = data.get("tags", [])
+    tags_str = ",".join(tags)
+
+    # Сохраняем оценку
+    success = add_rating_v2(
+        from_user_id=callback.from_user.id,
+        to_user_id=to_user_id,
+        stars=stars,
+        tags=tags_str,
+    )
+
+    if not success:
+        await callback.answer("⚠️ Ты уже оценивал этого игрока сегодня.", show_alert=True)
+        await state.clear()
+        return
+
+    # Пересчитываем рейтинг
+    new_rating = recalculate_rating(to_user_id)
+
+    # Логируем
+    log_event(callback.from_user.id, "rating_given", f"to:{to_user_id}|stars:{stars}|tags:{tags_str}")
+
+    # Уведомляем получателя
+    try:
+        tags_display = ", ".join(tags) if tags else "без тегов"
+        stars_str = "⭐" * stars
+
+        await callback.bot.send_message(
+            chat_id=to_user_id,
+            text=(
+                f"⭐ <b>Тебя оценили!</b>\n\n"
+                f"Оценка: {stars_str} ({stars}/5)\n"
+                f"Теги: {tags_display}\n\n"
+                f"Твой новый рейтинг: <b>{new_rating}/10</b>"
+            ),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        print(f"⚠️ Не удалось уведомить {to_user_id}: {e}")
+
+    await state.clear()
+
+    target = get_profile(to_user_id)
+    target_name = target[1] if target else str(to_user_id)
+
+    await callback.message.edit_text(
+        f"✅ <b>Спасибо за оценку!</b>\n\n"
+        f"Ты оценил @{target_name}:\n"
+        f"⭐ {stars}/5\n"
+        f"🏷 {', '.join(tags) if tags else 'без тегов'}\n\n"
+        f"Новый рейтинг: <b>{new_rating}/10</b>",
+        parse_mode="HTML",
+        reply_markup=rating_done_menu()
+    )
+    await callback.answer("✅ Оценка сохранена")
+
+
+# ===== СТАТИСТИКА ОЦЕНОК =====
+
+@router.message(Command("my_rating"))
+async def cmd_my_rating(message: Message):
+    """Показывает статистику оценок пользователя."""
+    update_last_seen(message.from_user.id)
+
+    stats = get_user_rating_stats(message.from_user.id)
+
+    if stats["total_ratings"] == 0:
+        await message.answer(
+            "📭 Тебя ещё не оценивали.\n\n"
+            "Играй с напарниками и проси их оценить тебя через /rate."
+        )
+        return
+
+    user = get_profile(message.from_user.id)
+    rating = user[6] if user else 5.0
+
+    text = f"⭐ <b>Твоя статистика оценок</b>\n\n"
+    text += f"Средняя оценка: <b>{stats['avg_stars']}/5</b>\n"
+    text += f"Текущий рейтинг: <b>{rating}/10</b>\n"
+    text += f"Всего оценок: <b>{stats['total_ratings']}</b>\n\n"
+
+    if stats["distribution"]:
+        text += "📊 <b>Распределение:</b>\n"
+        for stars, count in stats["distribution"]:
+            text += f"  {'⭐' * stars} — {count}\n"
+        text += "\n"
+
+    if stats["top_tags"]:
+        text += "🏷 <b>Топ теги:</b>\n"
+        for tag, count in stats["top_tags"]:
+            text += f"  {tag} — {count}\n"
+
+    await message.answer(text, parse_mode="HTML")
+
+
+@router.message(Command("recent_ratings"))
+async def cmd_recent_ratings(message: Message):
+    """Показывает последние оценки пользователя."""
+    update_last_seen(message.from_user.id)
+
+    ratings = get_user_ratings(message.from_user.id, limit=10)
+
+    if not ratings:
+        await message.answer("📭 Тебя ещё не оценивали.")
+        return
+
+    text = "⭐ <b>Последние оценки</b>\n\n"
+
+    for stars, tags, comment, created_at, from_username in ratings:
+        stars_str = "⭐" * stars
+        tags_str = f" | {tags}" if tags else ""
+        text += f"{stars_str} от @{from_username or 'аноним'}{tags_str}\n"
+        text += f"   <i>{created_at}</i>\n\n"
+
+    await message.answer(text, parse_mode="HTML")

@@ -621,3 +621,181 @@ def get_last_sender(user_id: int):
     row = cursor.fetchone()
     conn.close()
     return row[0] if row else None
+
+def init_ratings_extended():
+    """Создаёт расширенную таблицу оценок."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ratings_v2 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_user_id INTEGER NOT NULL,
+            to_user_id INTEGER NOT NULL,
+            stars INTEGER NOT NULL,
+            tags TEXT DEFAULT '',
+            comment TEXT DEFAULT '',
+            rating_date TEXT DEFAULT (date('now')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(from_user_id, to_user_id, rating_date)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def add_rating_v2(from_user_id: int, to_user_id: int, stars: int, tags: str = "", comment: str = ""):
+    """
+    Добавляет оценку. Возвращает True, если удалось (не дубликат).
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO ratings_v2 (from_user_id, to_user_id, stars, tags, comment)
+            VALUES (?, ?, ?, ?, ?)
+        """, (from_user_id, to_user_id, stars, tags, comment))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
+
+
+def get_user_ratings(user_id: int, limit: int = 10):
+    """Возвращает последние оценки пользователя."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT r.stars, r.tags, r.comment, r.created_at, u.username
+        FROM ratings_v2 r
+        LEFT JOIN users u ON r.from_user_id = u.user_id
+        WHERE r.to_user_id = ?
+        ORDER BY r.created_at DESC
+        LIMIT ?
+    """, (user_id, limit))
+    ratings = cursor.fetchall()
+    conn.close()
+    return ratings
+
+
+def get_user_rating_stats(user_id: int) -> dict:
+    """Возвращает статистику оценок пользователя."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    stats = {}
+
+    # Средняя оценка
+    cursor.execute("""
+        SELECT AVG(stars), COUNT(*) FROM ratings_v2 WHERE to_user_id = ?
+    """, (user_id,))
+    row = cursor.fetchone()
+    stats["avg_stars"] = round(row[0], 2) if row[0] else 0
+    stats["total_ratings"] = row[1]
+
+    # Распределение по звёздам
+    cursor.execute("""
+        SELECT stars, COUNT(*) FROM ratings_v2
+        WHERE to_user_id = ?
+        GROUP BY stars
+        ORDER BY stars DESC
+    """, (user_id,))
+    stats["distribution"] = cursor.fetchall()
+
+    # Топ тегов
+    cursor.execute("""
+        SELECT tags FROM ratings_v2
+        WHERE to_user_id = ? AND tags != ''
+    """, (user_id,))
+    tag_rows = cursor.fetchall()
+
+    tag_count = {}
+    for (tags_str,) in tag_rows:
+        for tag in tags_str.split(","):
+            tag = tag.strip()
+            if tag:
+                tag_count[tag] = tag_count.get(tag, 0) + 1
+
+    stats["top_tags"] = sorted(tag_count.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    conn.close()
+    return stats
+
+
+def has_rated_today(from_user_id: int, to_user_id: int) -> bool:
+    """Проверяет, оценивал ли уже пользователь сегодня."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) FROM ratings_v2
+        WHERE from_user_id = ? AND to_user_id = ?
+          AND rating_date = date('now')
+    """, (from_user_id, to_user_id))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count > 0
+
+
+def recalculate_rating(to_user_id: int):
+    """
+    Пересчитывает рейтинг пользователя на основе оценок.
+    Формула: средневзвешенная оценка + бонусы за теги.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT stars, tags FROM ratings_v2 WHERE to_user_id = ?
+    """, (to_user_id,))
+    rows = cursor.fetchall()
+
+    if not rows:
+        conn.close()
+        return 5.0  # стартовый рейтинг
+
+    total = 0.0
+    count = 0
+
+    for stars, tags_str in rows:
+        # Базовая оценка: 1–5 → 0–10
+        base = stars * 2.0
+
+        # Бонусы за теги
+        bonus = 0.0
+        if tags_str:
+            tags = [t.strip() for t in tags_str.split(",")]
+
+            if "🧠 Ментор" in tags:
+                bonus += 1.0
+            if "🤝 Командный" in tags:
+                bonus += 0.5
+            if "😄 Веселый" in tags:
+                bonus += 0.5
+            if "🎯 Хороший саппорт" in tags:
+                bonus += 0.5
+
+            if "😡 Токсик" in tags:
+                bonus -= 2.0
+            if "🚪 Ливер" in tags:
+                bonus -= 3.0
+            if "🤐 Молчал" in tags:
+                bonus -= 0.5
+
+        score = max(0.0, min(10.0, base + bonus))
+        total += score
+        count += 1
+
+    new_rating = round(total / count, 2)
+
+    # Обновляем рейтинг
+    cursor.execute("""
+        UPDATE users SET rating = ? WHERE user_id = ?
+    """, (new_rating, to_user_id))
+
+    conn.commit()
+    conn.close()
+
+    return new_rating
