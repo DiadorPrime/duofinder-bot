@@ -230,20 +230,20 @@ def filter_summary_menu():
     )
     return kb
 
+
 # ===== ОЦЕНКА НАПАРНИКА =====
 
 def rating_stars_menu(to_user_id: int):
-    """Меню выбора звёзд."""
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="⭐", callback_data=f"rating:stars:1:{to_user_id}"),
-                InlineKeyboardButton(text="⭐⭐", callback_data=f"rating:stars:2:{to_user_id}"),
-                InlineKeyboardButton(text="⭐⭐⭐", callback_data=f"rating:stars:3:{to_user_id}"),
+                InlineKeyboardButton(text="⭐ 1", callback_data=f"rating:stars:1:{to_user_id}"),
+                InlineKeyboardButton(text="⭐⭐ 2", callback_data=f"rating:stars:2:{to_user_id}"),
+                InlineKeyboardButton(text="⭐⭐⭐ 3", callback_data=f"rating:stars:3:{to_user_id}"),
             ],
             [
-                InlineKeyboardButton(text="⭐⭐⭐⭐", callback_data=f"rating:stars:4:{to_user_id}"),
-                InlineKeyboardButton(text="⭐⭐⭐⭐⭐", callback_data=f"rating:stars:5:{to_user_id}"),
+                InlineKeyboardButton(text="⭐⭐⭐⭐ 4", callback_data=f"rating:stars:4:{to_user_id}"),
+                InlineKeyboardButton(text="⭐⭐⭐⭐⭐ 5", callback_data=f"rating:stars:5:{to_user_id}"),
             ],
             [
                 InlineKeyboardButton(text="❌ Отмена", callback_data="rating:cancel"),
@@ -254,14 +254,9 @@ def rating_stars_menu(to_user_id: int):
 
 
 def rating_tags_menu(to_user_id: int, stars: int, selected_tags: list = None):
-    """
-    Меню выбора тегов.
-    selected_tags — список уже выбранных тегов.
-    """
     if selected_tags is None:
         selected_tags = []
 
-    # Позитивные теги
     positive = [
         ("🎯 Хороший саппорт", "🎯 Хороший саппорт"),
         ("😄 Веселый", "😄 Веселый"),
@@ -269,7 +264,6 @@ def rating_tags_menu(to_user_id: int, stars: int, selected_tags: list = None):
         ("🤝 Командный", "🤝 Командный"),
     ]
 
-    # Негативные теги
     negative = [
         ("😡 Токсик", "😡 Токсик"),
         ("🚪 Ливер", "🚪 Ливер"),
@@ -278,7 +272,6 @@ def rating_tags_menu(to_user_id: int, stars: int, selected_tags: list = None):
 
     keyboard = []
 
-    # Позитивные
     row = []
     for label, tag in positive:
         if tag in selected_tags:
@@ -293,7 +286,6 @@ def rating_tags_menu(to_user_id: int, stars: int, selected_tags: list = None):
     if row:
         keyboard.append(row)
 
-    # Негативные
     row = []
     for label, tag in negative:
         if tag in selected_tags:
@@ -308,7 +300,6 @@ def rating_tags_menu(to_user_id: int, stars: int, selected_tags: list = None):
     if row:
         keyboard.append(row)
 
-    # Кнопки управления
     keyboard.append([
         InlineKeyboardButton(
             text="✅ Сохранить",
@@ -324,9 +315,168 @@ def rating_tags_menu(to_user_id: int, stars: int, selected_tags: list = None):
 
 
 def rating_done_menu():
-    """Меню после сохранения оценки."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🏠 В меню", callback_data="rating:menu")],
+        ]
+    )
+
+
+# ===== ЖАЛОБЫ =====
+
+def report_reasons_menu(to_user_id: int):
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="😡 Оскорбления", callback_data=f"report:reason:Оскорбления:{to_user_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="🚪 Ливерство", callback_data=f"report:reason:Ливерство:{to_user_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="📢 Спам", callback_data=f"report:reason:Спам:{to_user_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="💤 AFK", callback_data=f"report:reason:AFK:{to_user_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="🎮 Читы", callback_data=f"report:reason:Читы:{to_user_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="❌ Другое", callback_data=f"report:reason:Другое:{to_user_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="⬅️ Отмена", callback_data="report:cancel"),
+            ],
+        ]
+    )
+    return kb
+
+
+def report_confirm_menu(to_user_id: int, reason: str):
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, пожаловаться", callback_data=f"report:confirm:{reason}:{to_user_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="⬅️ Назад", callback_data=f"report:back:{to_user_id}"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="report:cancel"),
+            ],
+        ]
+    )
+    return kb
+
+
+def report_done_menu():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 В меню", callback_data="report:menu")],
+        ]
+    )
+
+
+def admin_reports_menu():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Последние жалобы", callback_data="admin:reports:0")],
+            [InlineKeyboardButton(text="🏠 В меню", callback_data="admin:menu")],
+        ]
+    )
+
+
+# ===== СООБЩЕНИЯ =====
+
+def inbox_menu():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Обновить", callback_data="inbox:refresh")],
+            [InlineKeyboardButton(text="🏠 В меню", callback_data="inbox:menu")],
+        ]
+    )
+
+
+def chat_actions_menu(other_user_id: int):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✍️ Написать",
+                    callback_data=f"chat:write:{other_user_id}"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🗑 Удалить диалог",
+                    callback_data=f"chat:delete:{other_user_id}"
+                ),
+                InlineKeyboardButton(
+                    text="🚫 Заблокировать",
+                    callback_data=f"chat:block:{other_user_id}"
+                ),
+            ],
+            [
+                InlineKeyboardButton(text="🏠 В меню", callback_data="chat:menu"),
+            ],
+        ]
+    )
+
+
+def block_confirm_menu(other_user_id: int):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Да, заблокировать",
+                    callback_data=f"chat:block_confirm:{other_user_id}"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Отмена",
+                    callback_data=f"chat:view:{other_user_id}"
+                ),
+            ],
+        ]
+    )
+
+
+def unblock_menu(other_user_id: int):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Разблокировать",
+                    callback_data=f"chat:unblock:{other_user_id}"
+                ),
+            ],
+            [InlineKeyboardButton(text="🏠 В меню", callback_data="chat:menu")],
+        ]
+    )
+
+
+def delete_confirm_menu(other_user_id: int):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🗑 Да, удалить",
+                    callback_data=f"chat:delete_confirm:{other_user_id}"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Отмена",
+                    callback_data=f"chat:view:{other_user_id}"
+                ),
+            ],
+        ]
+    )
+
+
+def blocked_list_menu():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 В меню", callback_data="chat:menu")],
         ]
     )

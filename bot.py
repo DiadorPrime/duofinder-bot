@@ -10,7 +10,7 @@ from aiogram.exceptions import TelegramNetworkError
 
 from database import (
     init_db, init_analytics, migrate_db, init_games, init_messages,
-    init_ratings_extended
+    init_ratings_extended, init_reports
 )
 from proxy_manager import (
     download_proxies_from_github,
@@ -78,7 +78,8 @@ async def main():
     init_analytics()
     init_games()
     init_messages()
-    init_ratings_extended()  # ← добавляем
+    init_ratings_extended()
+    init_reports()  # ← добавляем
 
     print()
     print("=" * 60)

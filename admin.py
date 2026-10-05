@@ -3,12 +3,14 @@ from dotenv import load_dotenv
 
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from database import (
     get_stats, get_user_stats, set_user_rating, get_user_rating,
     reset_user_rating, get_all_users, get_users_count, find_user_by_username,
-    add_game, delete_game, toggle_game, get_all_games
+    add_game, delete_game, toggle_game, get_all_games,
+    get_all_reports, get_reports_count, hide_user, unhide_user,
+    is_user_hidden
 )
 from admin_keyboards import (
     admin_menu, users_pagination, user_actions, rating_values, back_to_menu
@@ -21,6 +23,7 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 router = Router()
 
 USERS_PER_PAGE = 10
+REPORTS_PER_PAGE = 10
 
 
 def is_admin(user_id: int) -> bool:
@@ -80,6 +83,8 @@ async def send_stats(message: Message):
 
     text += f"💬 Всего сообщений: <b>{stats.get('total_messages', 0)}</b>\n"
     text += f"💬 Сообщений за 24ч: <b>{stats.get('messages_24h', 0)}</b>\n\n"
+
+    text += f"🚨 Всего жалоб: <b>{get_reports_count()}</b>\n\n"
 
     if stats["top_games"]:
         text += "🎮 <b>Топ игр:</b>\n"
@@ -141,7 +146,8 @@ async def send_users_page(message: Message, page: int):
     text += f"Всего: {total}\n\n"
 
     for user_id, username, game, rank, rating in users:
-        text += f"👤 @{username or 'без имени'}\n"
+        hidden_mark = " 🚫" if is_user_hidden(user_id) else ""
+        text += f"👤 @{username or 'без имени'}{hidden_mark}\n"
         text += f"   ID: <code>{user_id}</code>\n"
         text += f"   🎮 {game or '—'} | 🏆 {rank or '—'}\n"
         text += f"   ⭐ {rating}/10\n\n"
@@ -196,15 +202,26 @@ async def send_user_card(message: Message, user_id: int):
         )
         return
 
+    hidden = is_user_hidden(user_id)
+    hidden_status = "🚫 Скрыт из выдачи" if hidden else "✅ Активен"
+
     text = f"👤 <b>Пользователь</b>\n\n"
     text += f"ID: <code>{user_id}</code>\n"
+    text += f"Статус: {hidden_status}\n"
     text += f"⭐ Рейтинг: <b>{rating}/10</b>\n\n"
     text += f"🔍 Поисков: {stats['finds']}\n"
     text += f"✏️ Обновлений профиля: {stats['profile_updates']}\n"
     text += f"💬 Сообщений отправлено: {stats.get('messages_sent', 0)}\n"
+    text += f"🚨 Жалоб за 7 дней: {get_user_reports_count_wrapper(user_id)}\n"
     text += f"📅 Зарегистрирован: {stats['registered_at'] or '—'}\n"
 
     await message.answer(text, parse_mode="HTML", reply_markup=user_actions(user_id))
+
+
+def get_user_reports_count_wrapper(user_id: int) -> int:
+    """Обёртка для подсчёта жалоб (чтобы не импортировать отдельно)."""
+    from database import get_user_reports_count
+    return get_user_reports_count(user_id, days=7)
 
 
 # ===== УПРАВЛЕНИЕ РЕЙТИНГОМ =====
@@ -378,7 +395,8 @@ async def cmd_find_user(message: Message):
 
     text = f"🔍 <b>Найдено: {len(users)}</b>\n\n"
     for user_id, uname, game, rank, rating in users:
-        text += f"👤 @{uname}\n"
+        hidden_mark = " 🚫" if is_user_hidden(user_id) else ""
+        text += f"👤 @{uname}{hidden_mark}\n"
         text += f"   ID: <code>{user_id}</code>\n"
         text += f"   🎮 {game or '—'} | ⭐ {rating}/10\n\n"
 
@@ -475,6 +493,126 @@ async def cmd_list_games(message: Message):
     await message.answer(text, parse_mode="HTML", reply_markup=back_to_menu())
 
 
+# ===== ПРОСМОТР ЖАЛОБ =====
+
+@router.message(Command("reports"))
+async def cmd_reports(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    await send_reports_page(message, 0)
+
+
+@router.callback_query(F.data.startswith("admin:reports:"))
+async def callback_reports(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    page = int(callback.data.split(":")[2])
+
+    await callback.message.delete()
+    await send_reports_page(callback.message, page)
+    await callback.answer()
+
+
+async def send_reports_page(message: Message, page: int):
+    """Отправляет страницу с жалобами."""
+    offset = page * REPORTS_PER_PAGE
+
+    total = get_reports_count()
+
+    if total == 0:
+        await message.answer(
+            "📭 Жалоб пока нет.",
+            reply_markup=back_to_menu()
+        )
+        return
+
+    total_pages = max(1, (total + REPORTS_PER_PAGE - 1) // REPORTS_PER_PAGE)
+    reports = get_all_reports(limit=REPORTS_PER_PAGE, offset=offset)
+
+    text = f"🚨 <b>Жалобы</b> ({page + 1}/{total_pages})\n"
+    text += f"Всего: {total}\n\n"
+
+    for r_id, from_id, to_id, reason, comment, created_at, from_name, to_name in reports:
+        text += f"<b>#{r_id}</b> {reason}\n"
+        text += f"  От: @{from_name or from_id}\n"
+        text += f"  На: @{to_name or to_id}\n"
+        text += f"  <i>{created_at}</i>\n\n"
+
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"admin:reports:{page - 1}"))
+    nav.append(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="admin:noop"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"admin:reports:{page + 1}"))
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        nav,
+        [InlineKeyboardButton(text="🏠 В меню", callback_data="admin:menu")],
+    ])
+
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.message(Command("hide_user"))
+async def cmd_hide_user(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer(
+            "Использование: <code>/hide_user &lt;user_id&gt;</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        target_id = int(parts[1])
+    except ValueError:
+        await message.answer("❌ ID должен быть числом.")
+        return
+
+    hide_user(target_id, reason="Скрыт админом", days=7)
+
+    await message.answer(
+        f"✅ Пользователь <code>{target_id}</code> скрыт на 7 дней.",
+        parse_mode="HTML"
+    )
+
+
+@router.message(Command("unhide_user"))
+async def cmd_unhide_user(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer(
+            "Использование: <code>/unhide_user &lt;user_id&gt;</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        target_id = int(parts[1])
+    except ValueError:
+        await message.answer("❌ ID должен быть числом.")
+        return
+
+    unhide_user(target_id)
+
+    await message.answer(
+        f"✅ Пользователь <code>{target_id}</code> возвращён в выдачу.",
+        parse_mode="HTML"
+    )
+
+
 # ===== ПОМОЩЬ =====
 
 @router.message(Command("admin_help"))
@@ -500,16 +638,23 @@ async def cmd_admin_help(message: Message):
         "/add_game &lt;название&gt; [эмодзи] — добавить\n"
         "/del_game &lt;название&gt; — удалить\n"
         "/toggle_game &lt;название&gt; — вкл/выкл\n\n"
+        "<b>Жалобы:</b>\n"
+        "/reports — список жалоб\n"
+        "/hide_user &lt;id&gt; — скрыть игрока\n"
+        "/unhide_user &lt;id&gt; — вернуть игрока\n\n"
+        "<b>Жалобы (для пользователей):</b>\n"
+        "/report &lt;id&gt; — пожаловаться\n"
+        "/my_reports — жалобы на тебя\n\n"
+        "<b>Оценки (для пользователей):</b>\n"
+        "/rate &lt;id&gt; — оценить напарника\n"
+        "/my_rating — статистика оценок\n"
+        "/recent_ratings — последние оценки\n\n"
         "<b>Сообщения (для пользователей):</b>\n"
         "/msg_&lt;id&gt; — написать\n"
         "/reply — ответить последнему\n"
         "/inbox — входящие\n"
         "/chat &lt;id&gt; — диалог\n"
-        "/unread — непрочитанные\n"
-        "<b>Оценки (для пользователей):</b>\n"
-        "/rate &lt;id&gt; — оценить напарника\n"
-        "/my_rating — статистика оценок\n"
-        "/recent_ratings — последние оценки\n\n",
+        "/unread — непрочитанные\n",
         parse_mode="HTML",
         reply_markup=back_to_menu()
     )

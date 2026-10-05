@@ -128,8 +128,73 @@ def init_messages():
             from_user_id INTEGER NOT NULL,
             to_user_id INTEGER NOT NULL,
             text TEXT NOT NULL,
+            reply_to_id INTEGER DEFAULT NULL,
             is_read INTEGER DEFAULT 0,
+            is_deleted INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS blocks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            blocked_user_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, blocked_user_id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def init_ratings_extended():
+    """Создаёт расширенную таблицу оценок."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ratings_v2 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_user_id INTEGER NOT NULL,
+            to_user_id INTEGER NOT NULL,
+            stars INTEGER NOT NULL,
+            tags TEXT DEFAULT '',
+            comment TEXT DEFAULT '',
+            rating_date TEXT DEFAULT (date('now')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(from_user_id, to_user_id, rating_date)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def init_reports():
+    """Создаёт таблицу жалоб."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_user_id INTEGER NOT NULL,
+            to_user_id INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            comment TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_resolved INTEGER DEFAULT 0
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS hidden_users (
+            user_id INTEGER PRIMARY KEY,
+            hidden_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            reason TEXT DEFAULT '',
+            until TIMESTAMP
         )
     """)
 
@@ -196,9 +261,6 @@ def find_partner_filtered(
     exclude_toxic: bool = False,
     limit: int = 5
 ):
-    """
-    Ищет напарников с учётом фильтров.
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -208,6 +270,61 @@ def find_partner_filtered(
         WHERE user_id != ?
           AND game = ?
           AND game IS NOT NULL
+    """
+    params = [user_id, game]
+
+    if rank:
+        query += " AND rank = ?"
+        params.append(rank)
+
+    if role:
+        query += " AND role = ?"
+        params.append(role)
+
+    if time:
+        query += " AND time = ?"
+        params.append(time)
+
+    if min_rating is not None:
+        query += " AND rating >= ?"
+        params.append(min_rating)
+
+    if exclude_toxic:
+        query += " AND rating >= 5.0"
+
+    query += " ORDER BY rating DESC LIMIT ?"
+    params.append(limit)
+
+    cursor.execute(query, params)
+    users = cursor.fetchall()
+    conn.close()
+    return users
+
+
+def find_partner_filtered_v2(
+    user_id: int,
+    game: str,
+    rank: str = None,
+    role: str = None,
+    time: str = None,
+    min_rating: float = None,
+    exclude_toxic: bool = False,
+    limit: int = 5
+):
+    """Ищет напарников. Исключает скрытых."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    query = """
+        SELECT user_id, username, game, rank, role, time, rating
+        FROM users
+        WHERE user_id != ?
+          AND game = ?
+          AND game IS NOT NULL
+          AND user_id NOT IN (
+              SELECT user_id FROM hidden_users
+              WHERE until IS NULL OR until > datetime('now')
+          )
     """
     params = [user_id, game]
 
@@ -540,13 +657,14 @@ def toggle_game(name: str) -> bool:
 
 # ===== СООБЩЕНИЯ =====
 
-def save_message(from_user_id: int, to_user_id: int, text: str) -> int:
+def save_message(from_user_id: int, to_user_id: int, text: str, reply_to_id: int = None) -> int:
+    """Сохраняет сообщение. Возвращает ID."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO messages (from_user_id, to_user_id, text)
-        VALUES (?, ?, ?)
-    """, (from_user_id, to_user_id, text))
+        INSERT INTO messages (from_user_id, to_user_id, text, reply_to_id)
+        VALUES (?, ?, ?, ?)
+    """, (from_user_id, to_user_id, text, reply_to_id))
     message_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -554,13 +672,31 @@ def save_message(from_user_id: int, to_user_id: int, text: str) -> int:
 
 
 def get_inbox(user_id: int, limit: int = 10):
+    """Возвращает входящие сообщения (последнее от каждого отправителя)."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT m.id, m.from_user_id, u.username, m.text, m.created_at, m.is_read
+        SELECT
+            m.from_user_id,
+            u.username,
+            m.text,
+            m.created_at,
+            m.is_read,
+            (SELECT COUNT(*) FROM messages
+             WHERE from_user_id = m.from_user_id
+               AND to_user_id = m.to_user_id
+               AND is_read = 0
+               AND is_deleted = 0) as unread_count
         FROM messages m
         LEFT JOIN users u ON m.from_user_id = u.user_id
         WHERE m.to_user_id = ?
+          AND m.is_deleted = 0
+          AND m.id = (
+              SELECT MAX(id) FROM messages
+              WHERE from_user_id = m.from_user_id
+                AND to_user_id = m.to_user_id
+                AND is_deleted = 0
+          )
         ORDER BY m.created_at DESC
         LIMIT ?
     """, (user_id, limit))
@@ -569,14 +705,16 @@ def get_inbox(user_id: int, limit: int = 10):
     return messages
 
 
-def get_conversation(user1_id: int, user2_id: int, limit: int = 20):
+def get_conversation(user1_id: int, user2_id: int, limit: int = 30):
+    """Возвращает диалог между двумя пользователями."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT from_user_id, text, created_at
+        SELECT id, from_user_id, text, reply_to_id, is_read, created_at
         FROM messages
-        WHERE (from_user_id = ? AND to_user_id = ?)
-           OR (from_user_id = ? AND to_user_id = ?)
+        WHERE ((from_user_id = ? AND to_user_id = ?)
+            OR (from_user_id = ? AND to_user_id = ?))
+          AND is_deleted = 0
         ORDER BY created_at ASC
         LIMIT ?
     """, (user1_id, user2_id, user2_id, user1_id, limit))
@@ -586,35 +724,52 @@ def get_conversation(user1_id: int, user2_id: int, limit: int = 20):
 
 
 def mark_as_read(user_id: int, from_user_id: int):
+    """Помечает все сообщения от пользователя как прочитанные."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE messages
         SET is_read = 1
-        WHERE to_user_id = ? AND from_user_id = ?
+        WHERE to_user_id = ? AND from_user_id = ? AND is_read = 0
     """, (user_id, from_user_id))
     conn.commit()
     conn.close()
 
 
 def count_unread(user_id: int) -> int:
+    """Считает непрочитанные сообщения."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
         SELECT COUNT(*) FROM messages
-        WHERE to_user_id = ? AND is_read = 0
+        WHERE to_user_id = ? AND is_read = 0 AND is_deleted = 0
     """, (user_id,))
     count = cursor.fetchone()[0]
     conn.close()
     return count
 
 
+def count_unread_from(user_id: int, from_user_id: int) -> int:
+    """Считает непрочитанные от конкретного пользователя."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) FROM messages
+        WHERE to_user_id = ? AND from_user_id = ?
+          AND is_read = 0 AND is_deleted = 0
+    """, (user_id, from_user_id))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
 def get_last_sender(user_id: int):
+    """Возвращает ID последнего, кто писал пользователю."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
         SELECT from_user_id FROM messages
-        WHERE to_user_id = ?
+        WHERE to_user_id = ? AND is_deleted = 0
         ORDER BY created_at DESC
         LIMIT 1
     """, (user_id,))
@@ -622,33 +777,122 @@ def get_last_sender(user_id: int):
     conn.close()
     return row[0] if row else None
 
-def init_ratings_extended():
-    """Создаёт расширенную таблицу оценок."""
+
+def delete_conversation(user_id: int, other_user_id: int) -> int:
+    """Мягко удаляет диалог между двумя пользователями."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ratings_v2 (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            from_user_id INTEGER NOT NULL,
-            to_user_id INTEGER NOT NULL,
-            stars INTEGER NOT NULL,
-            tags TEXT DEFAULT '',
-            comment TEXT DEFAULT '',
-            rating_date TEXT DEFAULT (date('now')),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(from_user_id, to_user_id, rating_date)
-        )
-    """)
-
+        UPDATE messages
+        SET is_deleted = 1
+        WHERE ((from_user_id = ? AND to_user_id = ?)
+            OR (from_user_id = ? AND to_user_id = ?))
+          AND is_deleted = 0
+    """, (user_id, other_user_id, other_user_id, user_id))
+    count = cursor.rowcount
     conn.commit()
     conn.close()
+    return count
 
+
+def search_messages(user_id: int, query: str, limit: int = 20):
+    """Ищет сообщения пользователя по тексту."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, from_user_id, to_user_id, text, created_at
+        FROM messages
+        WHERE (from_user_id = ? OR to_user_id = ?)
+          AND is_deleted = 0
+          AND text LIKE ?
+        ORDER BY created_at DESC
+        LIMIT ?
+    """, (user_id, user_id, f"%{query}%", limit))
+    messages = cursor.fetchall()
+    conn.close()
+    return messages
+
+
+def count_messages_last_hour(user_id: int) -> int:
+    """Считает сообщения, отправленные за последний час."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) FROM messages
+        WHERE from_user_id = ?
+          AND created_at >= datetime('now', '-1 hour')
+    """, (user_id,))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
+# ===== БЛОКИРОВКИ =====
+
+def block_user(user_id: int, blocked_user_id: int) -> bool:
+    """Блокирует пользователя. Возвращает True, если удалось."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO blocks (user_id, blocked_user_id)
+            VALUES (?, ?)
+        """, (user_id, blocked_user_id))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
+
+
+def unblock_user(user_id: int, blocked_user_id: int) -> bool:
+    """Разблокирует пользователя. Возвращает True, если удалось."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        DELETE FROM blocks
+        WHERE user_id = ? AND blocked_user_id = ?
+    """, (user_id, blocked_user_id))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def is_blocked(user_id: int, other_user_id: int) -> bool:
+    """Проверяет, заблокирован ли пользователь."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) FROM blocks
+        WHERE user_id = ? AND blocked_user_id = ?
+    """, (user_id, other_user_id))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count > 0
+
+
+def get_blocked_users(user_id: int):
+    """Возвращает список заблокированных пользователей."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT b.blocked_user_id, u.username, b.created_at
+        FROM blocks b
+        LEFT JOIN users u ON b.blocked_user_id = u.user_id
+        WHERE b.user_id = ?
+        ORDER BY b.created_at DESC
+    """, (user_id,))
+    users = cursor.fetchall()
+    conn.close()
+    return users
+
+
+# ===== ОЦЕНКИ =====
 
 def add_rating_v2(from_user_id: int, to_user_id: int, stars: int, tags: str = "", comment: str = ""):
-    """
-    Добавляет оценку. Возвращает True, если удалось (не дубликат).
-    """
+    """Добавляет оценку. Возвращает True, если удалось."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     try:
@@ -688,7 +932,6 @@ def get_user_rating_stats(user_id: int) -> dict:
 
     stats = {}
 
-    # Средняя оценка
     cursor.execute("""
         SELECT AVG(stars), COUNT(*) FROM ratings_v2 WHERE to_user_id = ?
     """, (user_id,))
@@ -696,7 +939,6 @@ def get_user_rating_stats(user_id: int) -> dict:
     stats["avg_stars"] = round(row[0], 2) if row[0] else 0
     stats["total_ratings"] = row[1]
 
-    # Распределение по звёздам
     cursor.execute("""
         SELECT stars, COUNT(*) FROM ratings_v2
         WHERE to_user_id = ?
@@ -705,7 +947,6 @@ def get_user_rating_stats(user_id: int) -> dict:
     """, (user_id,))
     stats["distribution"] = cursor.fetchall()
 
-    # Топ тегов
     cursor.execute("""
         SELECT tags FROM ratings_v2
         WHERE to_user_id = ? AND tags != ''
@@ -740,10 +981,7 @@ def has_rated_today(from_user_id: int, to_user_id: int) -> bool:
 
 
 def recalculate_rating(to_user_id: int):
-    """
-    Пересчитывает рейтинг пользователя на основе оценок.
-    Формула: средневзвешенная оценка + бонусы за теги.
-    """
+    """Пересчитывает рейтинг пользователя на основе оценок."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -754,16 +992,14 @@ def recalculate_rating(to_user_id: int):
 
     if not rows:
         conn.close()
-        return 5.0  # стартовый рейтинг
+        return 5.0
 
     total = 0.0
     count = 0
 
     for stars, tags_str in rows:
-        # Базовая оценка: 1–5 → 0–10
         base = stars * 2.0
 
-        # Бонусы за теги
         bonus = 0.0
         if tags_str:
             tags = [t.strip() for t in tags_str.split(",")]
@@ -790,7 +1026,6 @@ def recalculate_rating(to_user_id: int):
 
     new_rating = round(total / count, 2)
 
-    # Обновляем рейтинг
     cursor.execute("""
         UPDATE users SET rating = ? WHERE user_id = ?
     """, (new_rating, to_user_id))
@@ -799,3 +1034,143 @@ def recalculate_rating(to_user_id: int):
     conn.close()
 
     return new_rating
+
+
+# ===== ЖАЛОБЫ =====
+
+def add_report(from_user_id: int, to_user_id: int, reason: str, comment: str = "") -> bool:
+    """Добавляет жалобу. Возвращает True, если удалось."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*) FROM reports
+        WHERE from_user_id = ? AND to_user_id = ?
+          AND created_at >= datetime('now', '-1 day')
+    """, (from_user_id, to_user_id))
+
+    if cursor.fetchone()[0] > 0:
+        conn.close()
+        return False
+
+    cursor.execute("""
+        INSERT INTO reports (from_user_id, to_user_id, reason, comment)
+        VALUES (?, ?, ?, ?)
+    """, (from_user_id, to_user_id, reason, comment))
+
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_user_reports_count(user_id: int, days: int = 7) -> int:
+    """Возвращает количество жалоб на пользователя за N дней."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) FROM reports
+        WHERE to_user_id = ?
+          AND created_at >= datetime('now', ?)
+    """, (user_id, f'-{days} days'))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
+def get_user_reports(user_id: int, limit: int = 20):
+    """Возвращает жалобы на пользователя."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT r.reason, r.comment, r.created_at, u.username
+        FROM reports r
+        LEFT JOIN users u ON r.from_user_id = u.user_id
+        WHERE r.to_user_id = ?
+        ORDER BY r.created_at DESC
+        LIMIT ?
+    """, (user_id, limit))
+    reports = cursor.fetchall()
+    conn.close()
+    return reports
+
+
+def get_all_reports(limit: int = 50, offset: int = 0):
+    """Возвращает все жалобы (для админа)."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT r.id, r.from_user_id, r.to_user_id, r.reason, r.comment, r.created_at,
+               u1.username as from_name, u2.username as to_name
+        FROM reports r
+        LEFT JOIN users u1 ON r.from_user_id = u1.user_id
+        LEFT JOIN users u2 ON r.to_user_id = u2.user_id
+        ORDER BY r.created_at DESC
+        LIMIT ? OFFSET ?
+    """, (limit, offset))
+    reports = cursor.fetchall()
+    conn.close()
+    return reports
+
+
+def get_reports_count() -> int:
+    """Общее количество жалоб."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM reports")
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
+def hide_user(user_id: int, reason: str = "", days: int = 7):
+    """Скрывает пользователя из выдачи на N дней."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO hidden_users (user_id, reason, until)
+        VALUES (?, ?, datetime('now', ?))
+    """, (user_id, reason, f'+{days} days'))
+    conn.commit()
+    conn.close()
+
+
+def is_user_hidden(user_id: int) -> bool:
+    """Проверяет, скрыт ли пользователь."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) FROM hidden_users
+        WHERE user_id = ?
+          AND (until IS NULL OR until > datetime('now'))
+    """, (user_id,))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count > 0
+
+
+def unhide_user(user_id: int):
+    """Возвращает пользователя из скрытых."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM hidden_users WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def check_and_hide_user(user_id: int):
+    """Проверяет жалобы и скрывает пользователя, если их слишком много."""
+    count = get_user_reports_count(user_id, days=7)
+
+    if count >= 3:
+        hide_user(user_id, reason=f"{count} жалоб за 7 дней", days=7)
+
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE users SET rating = MAX(0, rating - 2) WHERE user_id = ?
+        """, (user_id,))
+        conn.commit()
+        conn.close()
+
+        return True
+    return False
