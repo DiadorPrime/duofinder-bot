@@ -15,10 +15,11 @@ from database import (
     add_rating_v2, get_user_ratings, get_user_rating_stats,
     has_rated_today, recalculate_rating,
     add_report, get_user_reports, get_user_reports_count,
-    check_and_hide_user, is_user_hidden
+    check_and_hide_user, is_user_hidden,
+    get_game_ranks, get_game_roles
 )
 from keyboards import (
-    main_menu, games_menu, roles_menu, time_menu, rating_menu,
+    main_menu, games_menu, ranks_menu, roles_menu, time_menu, rating_menu,
     filter_main_menu, filter_roles_menu, filter_time_menu,
     filter_rating_menu, filter_results_menu, filter_summary_menu,
     rating_stars_menu, rating_tags_menu, rating_done_menu,
@@ -140,23 +141,65 @@ async def process_game(message: Message, state: FSMContext):
         game_name = parts[1]
 
     await state.update_data(game=game_name)
-    await state.set_state(ProfileForm.rank)
-    await message.answer("Напиши свой ранг (например, 3к MMR, Gold, Diamond):")
+
+    ranks = get_game_ranks(game_name)
+
+    if ranks:
+        await state.set_state(ProfileForm.rank)
+        await message.answer(
+            f"🎮 {game_name}\n\nВыбери свой ранг:",
+            reply_markup=ranks_menu(game_name)
+        )
+    else:
+        await state.set_state(ProfileForm.rank)
+        await message.answer(
+            f"🎮 {game_name}\n\nНапиши свой ранг (вручную):"
+        )
 
 
 @router.message(ProfileForm.rank, ~F.text.startswith("/"))
 async def process_rank(message: Message, state: FSMContext):
+    if message.text == "⬅️ Назад":
+        await state.set_state(ProfileForm.game)
+        await message.answer("Выбери игру:", reply_markup=games_menu())
+        return
+
     await state.update_data(rank=message.text)
-    await state.set_state(ProfileForm.role)
-    await message.answer("Выбери роль:", reply_markup=roles_menu())
+
+    data = await state.get_data()
+    game_name = data.get("game", "")
+
+    roles = get_game_roles(game_name)
+
+    if roles:
+        await state.set_state(ProfileForm.role)
+        await message.answer(
+            "Выбери свою роль:",
+            reply_markup=roles_menu(game_name)
+        )
+    else:
+        await state.set_state(ProfileForm.role)
+        await message.answer("Напиши свою роль:")
 
 
 @router.message(ProfileForm.role, ~F.text.startswith("/"))
 async def process_role(message: Message, state: FSMContext):
     if message.text == "⬅️ Назад":
-        await state.clear()
-        await message.answer("Отменено.", reply_markup=main_menu())
+        data = await state.get_data()
+        game_name = data.get("game", "")
+
+        await state.set_state(ProfileForm.rank)
+
+        ranks = get_game_ranks(game_name)
+        if ranks:
+            await message.answer(
+                "Выбери свой ранг:",
+                reply_markup=ranks_menu(game_name)
+            )
+        else:
+            await message.answer("Напиши свой ранг:")
         return
+
     await state.update_data(role=message.text)
     await state.set_state(ProfileForm.time)
     await message.answer("Когда обычно играешь?", reply_markup=time_menu())

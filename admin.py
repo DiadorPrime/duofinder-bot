@@ -10,7 +10,9 @@ from database import (
     reset_user_rating, get_all_users, get_users_count, find_user_by_username,
     add_game, delete_game, toggle_game, get_all_games,
     get_all_reports, get_reports_count, hide_user, unhide_user,
-    is_user_hidden
+    is_user_hidden,
+    get_all_game_ranks, get_all_game_roles,
+    add_game_rank, add_game_role, delete_game_rank, delete_game_role
 )
 from admin_keyboards import (
     admin_menu, users_pagination, user_actions, rating_values, back_to_menu
@@ -212,16 +214,9 @@ async def send_user_card(message: Message, user_id: int):
     text += f"🔍 Поисков: {stats['finds']}\n"
     text += f"✏️ Обновлений профиля: {stats['profile_updates']}\n"
     text += f"💬 Сообщений отправлено: {stats.get('messages_sent', 0)}\n"
-    text += f"🚨 Жалоб за 7 дней: {get_user_reports_count_wrapper(user_id)}\n"
     text += f"📅 Зарегистрирован: {stats['registered_at'] or '—'}\n"
 
     await message.answer(text, parse_mode="HTML", reply_markup=user_actions(user_id))
-
-
-def get_user_reports_count_wrapper(user_id: int) -> int:
-    """Обёртка для подсчёта жалоб (чтобы не импортировать отдельно)."""
-    from database import get_user_reports_count
-    return get_user_reports_count(user_id, days=7)
 
 
 # ===== УПРАВЛЕНИЕ РЕЙТИНГОМ =====
@@ -493,6 +488,178 @@ async def cmd_list_games(message: Message):
     await message.answer(text, parse_mode="HTML", reply_markup=back_to_menu())
 
 
+# ===== УПРАВЛЕНИЕ РАНГАМИ И РОЛЯМИ =====
+
+@router.message(Command("ranks"))
+async def cmd_ranks(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    all_ranks = get_all_game_ranks()
+
+    if not all_ranks:
+        await message.answer("📭 Ранги не заданы.")
+        return
+
+    text = "🏆 <b>Ранги по играм</b>\n\n"
+    for game, ranks in all_ranks.items():
+        text += f"<b>{game}</b>\n"
+        text += f"  {', '.join(ranks)}\n\n"
+
+    text += "<b>Команды:</b>\n"
+    text += "<code>/add_rank &lt;игра&gt; | &lt;ранг&gt;</code> — добавить\n"
+    text += "<code>/del_rank &lt;игра&gt; | &lt;ранг&gt;</code> — удалить\n"
+
+    await message.answer(text, parse_mode="HTML", reply_markup=back_to_menu())
+
+
+@router.message(Command("roles"))
+async def cmd_roles(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    all_roles = get_all_game_roles()
+
+    if not all_roles:
+        await message.answer("📭 Роли не заданы.")
+        return
+
+    text = "🎯 <b>Роли по играм</b>\n\n"
+    for game, roles in all_roles.items():
+        text += f"<b>{game}</b>\n"
+        text += f"  {', '.join(roles)}\n\n"
+
+    text += "<b>Команды:</b>\n"
+    text += "<code>/add_role &lt;игра&gt; | &lt;роль&gt;</code> — добавить\n"
+    text += "<code>/del_role &lt;игра&gt; | &lt;роль&gt;</code> — удалить\n"
+
+    await message.answer(text, parse_mode="HTML", reply_markup=back_to_menu())
+
+
+@router.message(Command("add_rank"))
+async def cmd_add_rank(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    text = message.text.replace("/add_rank", "").strip()
+
+    if "|" not in text:
+        await message.answer(
+            "Использование: <code>/add_rank &lt;игра&gt; | &lt;ранг&gt;</code>\n"
+            "Пример: <code>/add_rank Dota 2 | Immortal</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    parts = text.split("|", 1)
+    game_name = parts[0].strip()
+    rank_name = parts[1].strip()
+
+    if not game_name or not rank_name:
+        await message.answer("❌ Укажи игру и ранг.")
+        return
+
+    if add_game_rank(game_name, rank_name):
+        await message.answer(
+            f"✅ Ранг <b>{rank_name}</b> добавлен для <b>{game_name}</b>.",
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer(f"⚠️ Такой ранг уже есть.")
+
+
+@router.message(Command("del_rank"))
+async def cmd_del_rank(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    text = message.text.replace("/del_rank", "").strip()
+
+    if "|" not in text:
+        await message.answer(
+            "Использование: <code>/del_rank &lt;игра&gt; | &lt;ранг&gt;</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    parts = text.split("|", 1)
+    game_name = parts[0].strip()
+    rank_name = parts[1].strip()
+
+    if delete_game_rank(game_name, rank_name):
+        await message.answer(
+            f"✅ Ранг <b>{rank_name}</b> удалён из <b>{game_name}</b>.",
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer(f"❌ Ранг не найден.")
+
+
+@router.message(Command("add_role"))
+async def cmd_add_role(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    text = message.text.replace("/add_role", "").strip()
+
+    if "|" not in text:
+        await message.answer(
+            "Использование: <code>/add_role &lt;игра&gt; | &lt;роль&gt;</code>\n"
+            "Пример: <code>/add_role Dota 2 | Roamer</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    parts = text.split("|", 1)
+    game_name = parts[0].strip()
+    role_name = parts[1].strip()
+
+    if not game_name or not role_name:
+        await message.answer("❌ Укажи игру и роль.")
+        return
+
+    if add_game_role(game_name, role_name):
+        await message.answer(
+            f"✅ Роль <b>{role_name}</b> добавлена для <b>{game_name}</b>.",
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer(f"⚠️ Такая роль уже есть.")
+
+
+@router.message(Command("del_role"))
+async def cmd_del_role(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    text = message.text.replace("/del_role", "").strip()
+
+    if "|" not in text:
+        await message.answer(
+            "Использование: <code>/del_role &lt;игра&gt; | &lt;роль&gt;</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    parts = text.split("|", 1)
+    game_name = parts[0].strip()
+    role_name = parts[1].strip()
+
+    if delete_game_role(game_name, role_name):
+        await message.answer(
+            f"✅ Роль <b>{role_name}</b> удалена из <b>{game_name}</b>.",
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer(f"❌ Роль не найдена.")
+
+
 # ===== ПРОСМОТР ЖАЛОБ =====
 
 @router.message(Command("reports"))
@@ -518,7 +685,6 @@ async def callback_reports(callback: CallbackQuery):
 
 
 async def send_reports_page(message: Message, page: int):
-    """Отправляет страницу с жалобами."""
     offset = page * REPORTS_PER_PAGE
 
     total = get_reports_count()
@@ -638,6 +804,13 @@ async def cmd_admin_help(message: Message):
         "/add_game &lt;название&gt; [эмодзи] — добавить\n"
         "/del_game &lt;название&gt; — удалить\n"
         "/toggle_game &lt;название&gt; — вкл/выкл\n\n"
+        "<b>Ранги и роли:</b>\n"
+        "/ranks — все ранги\n"
+        "/roles — все роли\n"
+        "/add_rank &lt;игра&gt; | &lt;ранг&gt; — добавить ранг\n"
+        "/del_rank &lt;игра&gt; | &lt;ранг&gt; — удалить\n"
+        "/add_role &lt;игра&gt; | &lt;роль&gt; — добавить роль\n"
+        "/del_role &lt;игра&gt; | &lt;роль&gt; — удалить\n\n"
         "<b>Жалобы:</b>\n"
         "/reports — список жалоб\n"
         "/hide_user &lt;id&gt; — скрыть игрока\n"

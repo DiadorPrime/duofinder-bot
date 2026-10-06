@@ -1174,3 +1174,345 @@ def check_and_hide_user(user_id: int):
 
         return True
     return False
+
+def init_game_data():
+    """Создаёт таблицы рангов и ролей для игр и наполняет их."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS game_ranks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_name TEXT NOT NULL,
+            rank_name TEXT NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            UNIQUE(game_name, rank_name)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS game_roles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_name TEXT NOT NULL,
+            role_name TEXT NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            UNIQUE(game_name, role_name)
+        )
+    """)
+
+    # Проверяем, пустые ли таблицы
+    cursor.execute("SELECT COUNT(*) FROM game_ranks")
+    ranks_empty = cursor.fetchone()[0] == 0
+
+    cursor.execute("SELECT COUNT(*) FROM game_roles")
+    roles_empty = cursor.fetchone()[0] == 0
+
+    if ranks_empty:
+        default_ranks = [
+            # Dota 2
+            ("Dota 2", "Herald", 1),
+            ("Dota 2", "Guardian", 2),
+            ("Dota 2", "Crusader", 3),
+            ("Dota 2", "Archon", 4),
+            ("Dota 2", "Legend", 5),
+            ("Dota 2", "Ancient", 6),
+            ("Dota 2", "Divine", 7),
+            ("Dota 2", "Immortal", 8),
+
+            # CS2
+            ("CS2", "Silver", 1),
+            ("CS2", "Gold Nova", 2),
+            ("CS2", "Master Guardian", 3),
+            ("CS2", "Distinguished Master Guardian", 4),
+            ("CS2", "Legendary Eagle", 5),
+            ("CS2", "Legendary Eagle Master", 6),
+            ("CS2", "Supreme Master First Class", 7),
+            ("CS2", "Global Elite", 8),
+
+            # Valorant
+            ("Valorant", "Iron", 1),
+            ("Valorant", "Bronze", 2),
+            ("Valorant", "Silver", 3),
+            ("Valorant", "Gold", 4),
+            ("Valorant", "Platinum", 5),
+            ("Valorant", "Diamond", 6),
+            ("Valorant", "Ascendant", 7),
+            ("Valorant", "Immortal", 8),
+            ("Valorant", "Radiant", 9),
+
+            # League of Legends
+            ("League of Legends", "Iron", 1),
+            ("League of Legends", "Bronze", 2),
+            ("League of Legends", "Silver", 3),
+            ("League of Legends", "Gold", 4),
+            ("League of Legends", "Platinum", 5),
+            ("League of Legends", "Emerald", 6),
+            ("League of Legends", "Diamond", 7),
+            ("League of Legends", "Master", 8),
+            ("League of Legends", "Grandmaster", 9),
+            ("League of Legends", "Challenger", 10),
+
+            # Mobile Legends
+            ("Mobile Legends", "Warrior", 1),
+            ("Mobile Legends", "Elite", 2),
+            ("Mobile Legends", "Master", 3),
+            ("Mobile Legends", "Grandmaster", 4),
+            ("Mobile Legends", "Epic", 5),
+            ("Mobile Legends", "Legend", 6),
+            ("Mobile Legends", "Mythic", 7),
+            ("Mobile Legends", "Mythical Glory", 8),
+
+            # PUBG
+            ("PUBG", "Bronze", 1),
+            ("PUBG", "Silver", 2),
+            ("PUBG", "Gold", 3),
+            ("PUBG", "Platinum", 4),
+            ("PUBG", "Diamond", 5),
+            ("PUBG", "Crown", 6),
+            ("PUBG", "Ace", 7),
+            ("PUBG", "Conqueror", 8),
+
+            # Fortnite
+            ("Fortnite", "Bronze", 1),
+            ("Fortnite", "Silver", 2),
+            ("Fortnite", "Gold", 3),
+            ("Fortnite", "Platinum", 4),
+            ("Fortnite", "Diamond", 5),
+            ("Fortnite", "Elite", 6),
+            ("Fortnite", "Champion", 7),
+            ("Fortnite", "Unreal", 8),
+
+            # Apex Legends
+            ("Apex Legends", "Rookie", 1),
+            ("Apex Legends", "Bronze", 2),
+            ("Apex Legends", "Silver", 3),
+            ("Apex Legends", "Gold", 4),
+            ("Apex Legends", "Platinum", 5),
+            ("Apex Legends", "Diamond", 6),
+            ("Apex Legends", "Master", 7),
+            ("Apex Legends", "Predator", 8),
+
+            # Overwatch 2
+            ("Overwatch 2", "Bronze", 1),
+            ("Overwatch 2", "Silver", 2),
+            ("Overwatch 2", "Gold", 3),
+            ("Overwatch 2", "Platinum", 4),
+            ("Overwatch 2", "Diamond", 5),
+            ("Overwatch 2", "Master", 6),
+            ("Overwatch 2", "Grandmaster", 7),
+            ("Overwatch 2", "Champion", 8),
+
+            # Minecraft
+            ("Minecraft", "Новичок", 1),
+            ("Minecraft", "Средний", 2),
+            ("Minecraft", "Опытный", 3),
+            ("Minecraft", "Про", 4),
+        ]
+
+        for game, rank, order in default_ranks:
+            cursor.execute("""
+                INSERT OR IGNORE INTO game_ranks (game_name, rank_name, sort_order)
+                VALUES (?, ?, ?)
+            """, (game, rank, order))
+
+    if roles_empty:
+        default_roles = [
+            # Dota 2
+            ("Dota 2", "Керри", 1),
+            ("Dota 2", "Мид", 2),
+            ("Dota 2", "Оффлейн", 3),
+            ("Dota 2", "Саппорт", 4),
+
+            # CS2
+            ("CS2", "Снайпер", 1),
+            ("CS2", "Entry Fragger", 2),
+            ("CS2", "Support", 3),
+            ("CS2", "IGL (капитан)", 4),
+            ("CS2", "Lurker", 5),
+
+            # Valorant
+            ("Valorant", "Duelist", 1),
+            ("Valorant", "Controller", 2),
+            ("Valorant", "Initiator", 3),
+            ("Valorant", "Sentinel", 4),
+
+            # League of Legends
+            ("League of Legends", "Top", 1),
+            ("League of Legends", "Jungle", 2),
+            ("League of Legends", "Mid", 3),
+            ("League of Legends", "ADC", 4),
+            ("League of Legends", "Support", 5),
+
+            # Mobile Legends
+            ("Mobile Legends", "Tank", 1),
+            ("Mobile Legends", "Fighter", 2),
+            ("Mobile Legends", "Assassin", 3),
+            ("Mobile Legends", "Mage", 4),
+            ("Mobile Legends", "Marksman", 5),
+            ("Mobile Legends", "Support", 6),
+
+            # PUBG
+            ("PUBG", "Штурмовик", 1),
+            ("PUBG", "Снайпер", 2),
+            ("PUBG", "Поддержка", 3),
+            ("PUBG", "Разведчик", 4),
+
+            # Fortnite
+            ("Fortnite", "Builder", 1),
+            ("Fortnite", "Fighter", 2),
+            ("Fortnite", "Support", 3),
+
+            # Apex Legends
+            ("Apex Legends", "Assault", 1),
+            ("Apex Legends", "Skirmisher", 2),
+            ("Apex Legends", "Recon", 3),
+            ("Apex Legends", "Support", 4),
+            ("Apex Legends", "Controller", 5),
+
+            # Overwatch 2
+            ("Overwatch 2", "Tank", 1),
+            ("Overwatch 2", "Damage", 2),
+            ("Overwatch 2", "Support", 3),
+
+            # Minecraft
+            ("Minecraft", "Строитель", 1),
+            ("Minecraft", "Шахтёр", 2),
+            ("Minecraft", "Фермер", 3),
+            ("Minecraft", "Воин", 4),
+            ("Minecraft", "Исследователь", 5),
+        ]
+
+        for game, role, order in default_roles:
+            cursor.execute("""
+                INSERT OR IGNORE INTO game_roles (game_name, role_name, sort_order)
+                VALUES (?, ?, ?)
+            """, (game, role, order))
+
+    conn.commit()
+    conn.close()
+
+
+def get_game_ranks(game_name: str):
+    """Возвращает ранги для игры."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT rank_name FROM game_ranks
+        WHERE game_name = ?
+        ORDER BY sort_order
+    """, (game_name,))
+    ranks = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return ranks
+
+
+def get_game_roles(game_name: str):
+    """Возвращает роли для игры."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT role_name FROM game_roles
+        WHERE game_name = ?
+        ORDER BY sort_order
+    """, (game_name,))
+    roles = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return roles
+
+
+def add_game_rank(game_name: str, rank_name: str) -> bool:
+    """Добавляет ранг для игры."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO game_ranks (game_name, rank_name)
+            VALUES (?, ?)
+        """, (game_name, rank_name))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
+
+
+def add_game_role(game_name: str, role_name: str) -> bool:
+    """Добавляет роль для игры."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO game_roles (game_name, role_name)
+            VALUES (?, ?)
+        """, (game_name, role_name))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
+
+
+def delete_game_rank(game_name: str, rank_name: str) -> bool:
+    """Удаляет ранг игры."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        DELETE FROM game_ranks WHERE game_name = ? AND rank_name = ?
+    """, (game_name, rank_name))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def delete_game_role(game_name: str, role_name: str) -> bool:
+    """Удаляет роль игры."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        DELETE FROM game_roles WHERE game_name = ? AND role_name = ?
+    """, (game_name, role_name))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def get_all_game_ranks():
+    """Возвращает все ранги по играм."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT game_name, rank_name FROM game_ranks
+        ORDER BY game_name, sort_order
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+
+    result = {}
+    for game, rank in rows:
+        if game not in result:
+            result[game] = []
+        result[game].append(rank)
+    return result
+
+
+def get_all_game_roles():
+    """Возвращает все роли по играм."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT game_name, role_name FROM game_roles
+        ORDER BY game_name, sort_order
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+
+    result = {}
+    for game, role in rows:
+        if game not in result:
+            result[game] = []
+        result[game].append(role)
+    return result

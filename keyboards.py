@@ -2,7 +2,7 @@ from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton
 )
-from database import get_active_games
+from database import get_active_games, get_game_ranks, get_game_roles
 
 
 def main_menu():
@@ -58,16 +58,67 @@ def games_inline_menu():
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-def roles_menu():
-    kb = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Керри"), KeyboardButton(text="Саппорт")],
-            [KeyboardButton(text="Мид"), KeyboardButton(text="Оффлейн")],
-            [KeyboardButton(text="⬅️ Назад")],
-        ],
-        resize_keyboard=True
-    )
-    return kb
+def ranks_menu(game_name: str):
+    """Динамическое меню рангов для игры."""
+    ranks = get_game_ranks(game_name)
+
+    if not ranks:
+        return None
+
+    keyboard = []
+    row = []
+    for rank in ranks:
+        row.append(KeyboardButton(text=rank))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([KeyboardButton(text="⬅️ Назад")])
+
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def roles_menu(game_name: str = None):
+    """Динамическое меню ролей для игры."""
+    if not game_name:
+        kb = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="Керри"), KeyboardButton(text="Саппорт")],
+                [KeyboardButton(text="Мид"), KeyboardButton(text="Оффлейн")],
+                [KeyboardButton(text="⬅️ Назад")],
+            ],
+            resize_keyboard=True
+        )
+        return kb
+
+    roles = get_game_roles(game_name)
+
+    if not roles:
+        kb = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="Керри"), KeyboardButton(text="Саппорт")],
+                [KeyboardButton(text="Мид"), KeyboardButton(text="Оффлейн")],
+                [KeyboardButton(text="⬅️ Назад")],
+            ],
+            resize_keyboard=True
+        )
+        return kb
+
+    keyboard = []
+    row = []
+    for role in roles:
+        row.append(KeyboardButton(text=role))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([KeyboardButton(text="⬅️ Назад")])
+
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
 def time_menu():
