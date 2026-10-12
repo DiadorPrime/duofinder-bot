@@ -1,6 +1,8 @@
+import os
 import sqlite3
 
-DB_NAME = "duofinder.db"
+# Если мы на Amvera, сохраняем базу в /data, иначе — рядом с проектом
+DB_NAME = "/data/duofinder.db" if os.path.exists("/data") else "duofinder.db"
 
 
 def init_db():
