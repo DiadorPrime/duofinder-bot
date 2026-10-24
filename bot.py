@@ -8,8 +8,9 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from database import (
     init_db, init_analytics, migrate_db, init_games, init_messages,
-    init_ratings_extended, init_reports, init_game_data
+    init_ratings_extended, init_reports, init_game_data, init_notifications
 )
+from notifications import notification_worker, cleanup_worker
 
 load_dotenv()
 
@@ -28,6 +29,7 @@ async def main():
     init_ratings_extended()
     init_reports()
     init_game_data()
+    init_notifications()
 
     print("🚀 Запуск бота на Amvera...")
     print(f"📁 База данных: {os.path.abspath('duofinder.db')}")
@@ -44,6 +46,10 @@ async def main():
 
     dp.include_router(handlers.router)
     dp.include_router(admin.router)
+
+    # Запускаем воркеры уведомлений параллельно с polling
+    asyncio.create_task(notification_worker(bot, interval=30))
+    asyncio.create_task(cleanup_worker(interval_hours=24))
 
     await dp.start_polling(bot)
 
