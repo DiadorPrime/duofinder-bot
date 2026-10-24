@@ -1673,3 +1673,134 @@ def has_notified_mutual(user1_id: int, user2_id: int) -> bool:
 
     conn.close()
     return count1 > 0
+
+# ===== АНТИФРОД. УРОВЕНЬ 1 =====
+
+def get_user_age_days(user_id: int) -> int:
+    """
+    Возвращает возраст аккаунта в днях.
+    Если аккаунт не найден — возвращает 0.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT CAST(
+            julianday('now') - julianday(created_at)
+        AS INTEGER)
+        FROM users WHERE user_id = ?
+    """, (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row and row[0] is not None else 0
+
+
+def is_profile_filled(user_id: int) -> bool:
+    """
+    Проверяет, заполнен ли профиль: игра, ранг, роль.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT game, rank, role FROM users WHERE user_id = ?
+    """, (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return False
+
+    game, rank, role = row
+    return bool(game and rank and role)
+
+
+def has_interaction(user1_id: int, user2_id: int) -> bool:
+    """
+    Проверяет, было ли взаимодействие между двумя пользователями:
+    - обмен сообщениями (в любую сторону)
+    - взаимный мэтч (если есть таблица matches)
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    # Проверка 1: сообщения (в любую сторону)
+    cursor.execute("""
+        SELECT COUNT(*) FROM messages
+        WHERE ((from_user_id = ? AND to_user_id = ?)
+            OR (from_user_id = ? AND to_user_id = ?))
+          AND is_deleted = 0
+    """, (user1_id, user2_id, user2_id, user1_id))
+
+    if cursor.fetchone()[0] > 0:
+        conn.close()
+        return True
+
+    # Проверка 2: взаимный мэтч (если есть)
+    try:
+        cursor.execute("""
+            SELECT COUNT(*) FROM matches
+            WHERE (user1_id = ? AND user2_id = ?)
+               OR (user1_id = ? AND user2_id = ?)
+        """, (user1_id, user2_id, user2_id, user1_id))
+
+        if cursor.fetchone()[0] > 0:
+            conn.close()
+            return True
+    except sqlite3.OperationalError:
+        pass
+
+    conn.close()
+    return False
+
+
+def add_match(user1_id: int, user2_id: int) -> bool:
+    """
+    Добавляет взаимный мэтч.
+    """
+    if user1_id == user2_id:
+        return False
+
+    a, b = min(user1_id, user2_id), max(user1_id, user2_id)
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO matches (user1_id, user2_id)
+            VALUES (?, ?)
+        """, (a, b))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
+
+
+def anti_fraud_check_v1(from_user_id: int, to_user_id: int) -> dict:
+    """
+    Уровень 1 антифрода. Возвращает dict:
+    {
+        "allowed": bool,
+        "reason": str,
+    }
+    """
+    age = get_user_age_days(from_user_id)
+    if age < 3:
+        return {
+            "allowed": False,
+            "reason": f"Аккаунт слишком новый ({age} дн.). Нужно 3+ дня.",
+        }
+
+    if not is_profile_filled(from_user_id):
+        return {
+            "allowed": False,
+            "reason": "Профиль не заполнен. Заполни: /profile",
+        }
+
+    if not has_interaction(from_user_id, to_user_id):
+        return {
+            "allowed": False,
+            "reason": "Ты не взаимодействовал с этим игроком.",
+        }
+
+    return {"allowed": True, "reason": ""}
