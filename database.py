@@ -1518,3 +1518,158 @@ def get_all_game_roles():
             result[game] = []
         result[game].append(role)
     return result
+
+# ===== УВЕДОМЛЕНИЯ =====
+
+def init_notifications():
+    """Создаёт таблицу уведомлений."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            notification_type TEXT NOT NULL,
+            data TEXT DEFAULT '',
+            is_sent INTEGER DEFAULT 0,
+            send_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def schedule_notification(user_id: int, notification_type: str, data: str = "", delay_seconds: int = 0) -> int:
+    """
+    Планирует уведомление.
+    delay_seconds — через сколько секунд отправить (0 = сразу).
+    Возвращает ID уведомления.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    if delay_seconds > 0:
+        cursor.execute("""
+            INSERT INTO notifications (user_id, notification_type, data, send_at)
+            VALUES (?, ?, ?, datetime('now', ?))
+        """, (user_id, notification_type, data, f'+{delay_seconds} seconds'))
+    else:
+        cursor.execute("""
+            INSERT INTO notifications (user_id, notification_type, data, send_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        """, (user_id, notification_type, data))
+
+    notif_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return notif_id
+
+
+def get_pending_notifications(limit: int = 100):
+    """
+    Возвращает уведомления, которые пора отправить.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, user_id, notification_type, data
+        FROM notifications
+        WHERE is_sent = 0
+          AND send_at <= CURRENT_TIMESTAMP
+        ORDER BY send_at ASC
+        LIMIT ?
+    """, (limit,))
+    notifs = cursor.fetchall()
+    conn.close()
+    return notifs
+
+
+def mark_notification_sent(notification_id: int):
+    """Помечает уведомление как отправленное."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE notifications SET is_sent = 1 WHERE id = ?
+    """, (notification_id,))
+    conn.commit()
+    conn.close()
+
+
+def has_pending_notification(user_id: int, notification_type: str) -> bool:
+    """
+    Проверяет, есть ли уже запланированное уведомление этого типа.
+    Чтобы не спамить.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) FROM notifications
+        WHERE user_id = ?
+          AND notification_type = ?
+          AND is_sent = 0
+    """, (user_id, notification_type))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count > 0
+
+
+def cleanup_old_notifications(days: int = 7):
+    """Удаляет старые отправленные уведомления."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        DELETE FROM notifications
+        WHERE is_sent = 1
+          AND created_at < datetime('now', ?)
+    """, (f'-{days} days',))
+    conn.commit()
+    conn.close()
+
+
+# ===== ВЗАИМНЫЕ МЭТЧИ =====
+
+def check_mutual_match(user1_id: int, user2_id: int) -> bool:
+    """
+    Проверяет, есть ли взаимный мэтч между двумя пользователями.
+    Взаимный = каждый отправил сообщение другому.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    # Проверяем, писал ли user1 пользователю user2
+    cursor.execute("""
+        SELECT COUNT(*) FROM messages
+        WHERE from_user_id = ? AND to_user_id = ? AND is_deleted = 0
+    """, (user1_id, user2_id))
+    user1_wrote = cursor.fetchone()[0] > 0
+
+    # Проверяем, писал ли user2 пользователю user1
+    cursor.execute("""
+        SELECT COUNT(*) FROM messages
+        WHERE from_user_id = ? AND to_user_id = ? AND is_deleted = 0
+    """, (user2_id, user1_id))
+    user2_wrote = cursor.fetchone()[0] > 0
+
+    conn.close()
+    return user1_wrote and user2_wrote
+
+
+def has_notified_mutual(user1_id: int, user2_id: int) -> bool:
+    """Проверяет, отправляли ли уже уведомление о взаимном мэтче."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    # Проверяем в обе стороны
+    cursor.execute("""
+        SELECT COUNT(*) FROM notifications
+        WHERE notification_type = 'mutual_match'
+          AND data LIKE ?
+          AND is_sent = 1
+    """, (f'%{user2_id}%',))
+    count1 = cursor.fetchone()[0]
+
+    conn.close()
+    return count1 > 0

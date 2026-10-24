@@ -16,7 +16,10 @@ from database import (
     has_rated_today, recalculate_rating,
     add_report, get_user_reports, get_user_reports_count,
     check_and_hide_user, is_user_hidden,
-    get_game_ranks, get_game_roles
+    get_game_ranks, get_game_roles,
+    get_user_age_days, is_profile_filled, has_interaction,
+    add_match, anti_fraud_check_v1,
+    schedule_notification, check_mutual_match, has_notified_mutual
 )
 from keyboards import (
     main_menu, games_menu, ranks_menu, roles_menu, time_menu, rating_menu,
@@ -70,6 +73,15 @@ async def cmd_start(message: Message, state: FSMContext):
     add_user(message.from_user.id, message.from_user.username or "unknown")
     log_event(message.from_user.id, "start")
     update_last_seen(message.from_user.id)
+
+    # Планируем напоминание о профиле через 24 часа
+    if not is_profile_filled(message.from_user.id):
+        schedule_notification(
+            user_id=message.from_user.id,
+            notification_type="profile_reminder",
+            delay_seconds=24 * 3600
+        )
+
     await message.answer(
         f"Привет, {message.from_user.first_name}! 👋\n\n"
         "Я помогу найти напарника для игр.\n\n"
@@ -616,6 +628,27 @@ async def process_message(message: Message, state: FSMContext):
         return
 
     msg_id = save_message(message.from_user.id, to_user_id, text)
+
+    # ===== АНТИФРОД: создаём мэтч при взаимодействии =====
+    add_match(message.from_user.id, to_user_id)
+    # ===== /АНТИФРОД =====
+
+    # ===== УВЕДОМЛЕНИЕ О ВЗАИМНОМ МЭТЧЕ =====
+    if check_mutual_match(message.from_user.id, to_user_id):
+        if not has_notified_mutual(message.from_user.id, to_user_id):
+            schedule_notification(
+                user_id=message.from_user.id,
+                notification_type="mutual_match",
+                data=f"{to_user_id}|{recipient_name}"
+            )
+            sender_name = message.from_user.username or message.from_user.first_name
+            schedule_notification(
+                user_id=to_user_id,
+                notification_type="mutual_match",
+                data=f"{message.from_user.id}|{sender_name}"
+            )
+    # ===== /УВЕДОМЛЕНИЕ =====
+
     log_event(message.from_user.id, "message_sent", f"to:{to_user_id}")
 
     sender_name = message.from_user.username or message.from_user.first_name
@@ -833,6 +866,27 @@ async def process_reply(message: Message, state: FSMContext):
         return
 
     msg_id = save_message(message.from_user.id, to_user_id, text)
+
+    # ===== АНТИФРОД: создаём мэтч при взаимодействии =====
+    add_match(message.from_user.id, to_user_id)
+    # ===== /АНТИФРОД =====
+
+    # ===== УВЕДОМЛЕНИЕ О ВЗАИМНОМ МЭТЧЕ =====
+    if check_mutual_match(message.from_user.id, to_user_id):
+        if not has_notified_mutual(message.from_user.id, to_user_id):
+            schedule_notification(
+                user_id=message.from_user.id,
+                notification_type="mutual_match",
+                data=f"{to_user_id}|{recipient_name}"
+            )
+            sender_name = message.from_user.username or message.from_user.first_name
+            schedule_notification(
+                user_id=to_user_id,
+                notification_type="mutual_match",
+                data=f"{message.from_user.id}|{sender_name}"
+            )
+    # ===== /УВЕДОМЛЕНИЕ =====
+
     log_event(message.from_user.id, "message_sent", f"to:{to_user_id}")
 
     sender_name = message.from_user.username or message.from_user.first_name
@@ -1146,6 +1200,20 @@ async def cmd_rate(message: Message, state: FSMContext):
         await message.answer("❌ Пользователь не найден.")
         return
 
+    # ===== АНТИФРОД. УРОВЕНЬ 1 =====
+    check = anti_fraud_check_v1(message.from_user.id, to_user_id)
+
+    if not check["allowed"]:
+        target_name = target[1] or str(to_user_id)
+        await message.answer(
+            f"🚫 <b>Оценка недоступна</b>\n\n"
+            f"Причина: {check['reason']}\n\n"
+            f"<i>Это защита от накрутки рейтинга.</i>",
+            parse_mode="HTML"
+        )
+        return
+    # ===== /АНТИФРОД =====
+
     if has_rated_today(message.from_user.id, to_user_id):
         await message.answer(
             f"⚠️ Ты уже оценивал @{target[1]} сегодня.\n"
@@ -1280,6 +1348,16 @@ async def rating_save(callback: CallbackQuery, state: FSMContext):
         return
 
     new_rating = recalculate_rating(to_user_id)
+
+    # ===== НАПОМИНАНИЕ ОЦЕНИТЬ В ОТВЕТ =====
+    rater_name = callback.from_user.username or callback.from_user.first_name
+    schedule_notification(
+        user_id=to_user_id,
+        notification_type="rate_reminder",
+        data=f"{callback.from_user.id}|{rater_name}",
+        delay_seconds=3600
+    )
+    # ===== /НАПОМИНАНИЕ =====
 
     log_event(callback.from_user.id, "rating_given", f"to:{to_user_id}|stars:{stars}|tags:{tags_str}")
 

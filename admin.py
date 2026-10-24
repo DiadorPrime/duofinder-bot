@@ -12,7 +12,9 @@ from database import (
     get_all_reports, get_reports_count, hide_user, unhide_user,
     is_user_hidden,
     get_all_game_ranks, get_all_game_roles,
-    add_game_rank, add_game_role, delete_game_rank, delete_game_role
+    add_game_rank, add_game_role, delete_game_rank, delete_game_role,
+    get_user_age_days, is_profile_filled,
+    get_pending_notifications
 )
 from admin_keyboards import (
     admin_menu, users_pagination, user_actions, rating_values, back_to_menu
@@ -207,10 +209,17 @@ async def send_user_card(message: Message, user_id: int):
     hidden = is_user_hidden(user_id)
     hidden_status = "🚫 Скрыт из выдачи" if hidden else "✅ Активен"
 
+    age = get_user_age_days(user_id)
+    profile_filled = is_profile_filled(user_id)
+    profile_status = "✅ заполнен" if profile_filled else "❌ не заполнен"
+
     text = f"👤 <b>Пользователь</b>\n\n"
     text += f"ID: <code>{user_id}</code>\n"
     text += f"Статус: {hidden_status}\n"
     text += f"⭐ Рейтинг: <b>{rating}/10</b>\n\n"
+    text += f"🛡 <b>Антифрод:</b>\n"
+    text += f"  • Возраст: {age} дн.\n"
+    text += f"  • Профиль: {profile_status}\n\n"
     text += f"🔍 Поисков: {stats['finds']}\n"
     text += f"✏️ Обновлений профиля: {stats['profile_updates']}\n"
     text += f"💬 Сообщений отправлено: {stats.get('messages_sent', 0)}\n"
@@ -779,6 +788,108 @@ async def cmd_unhide_user(message: Message):
     )
 
 
+# ===== АНТИФРОД: СТАТИСТИКА =====
+
+@router.message(Command("antifraud"))
+async def cmd_antifraud(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    await message.answer(
+        "🛡 <b>Антифрод. Уровень 1</b>\n\n"
+        "<b>Проверки перед /rate:</b>\n"
+        "1. Возраст аккаунта — 3+ дня\n"
+        "2. Заполненный профиль — игра, ранг, роль\n"
+        "3. Взаимодействие — сообщение или взаимный мэтч\n\n"
+        "<b>Если не пройдено</b> — оценка отклоняется.\n\n"
+        "<b>Как работает взаимодействие:</b>\n"
+        "• Игрок написал другому через /msg_ → мэтч\n"
+        "• Ответил через /reply → мэтч\n"
+        "• Мэтч хранится в таблице matches\n\n"
+        "<b>Команды:</b>\n"
+        "/check_antifraud &lt;user_id&gt; — проверить пользователя",
+        parse_mode="HTML",
+        reply_markup=back_to_menu()
+    )
+
+
+@router.message(Command("check_antifraud"))
+async def cmd_check_antifraud(message: Message):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer(
+            "Использование: <code>/check_antifraud &lt;user_id&gt;</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        target_id = int(parts[1])
+    except ValueError:
+        await message.answer("❌ ID должен быть числом.")
+        return
+
+    age = get_user_age_days(target_id)
+    profile_filled = is_profile_filled(target_id)
+
+    text = f"🛡 <b>Антифрод-проверка</b>\n\n"
+    text += f"ID: <code>{target_id}</code>\n\n"
+
+    text += f"1. Возраст: <b>{age} дн.</b> "
+    text += "✅\n" if age >= 3 else "❌ (нужно 3+)\n"
+
+    text += f"2. Профиль: "
+    text += "✅ заполнен\n" if profile_filled else "❌ не заполнен\n"
+
+    text += "\n<i>Проверка взаимодействия — только при конкретном /rate.</i>"
+
+    await message.answer(text, parse_mode="HTML", reply_markup=back_to_menu())
+
+
+# ===== УВЕДОМЛЕНИЯ =====
+
+@router.message(Command("notifications"))
+async def cmd_notifications(message: Message):
+    """Статистика уведомлений."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    pending = get_pending_notifications(limit=1000)
+
+    if not pending:
+        await message.answer(
+            "🔔 <b>Уведомления</b>\n\n"
+            "📭 Ожидающих уведомлений нет.",
+            parse_mode="HTML",
+            reply_markup=back_to_menu()
+        )
+        return
+
+    types = {}
+    for notif_id, user_id, notif_type, data in pending:
+        types[notif_type] = types.get(notif_type, 0) + 1
+
+    text = "🔔 <b>Ожидающие уведомления</b>\n\n"
+    text += f"Всего: <b>{len(pending)}</b>\n\n"
+
+    for notif_type, count in types.items():
+        emoji = {
+            "mutual_match": "🤝",
+            "rate_reminder": "⭐",
+            "profile_reminder": "📝",
+        }.get(notif_type, "🔔")
+
+        text += f"{emoji} {notif_type}: {count}\n"
+
+    await message.answer(text, parse_mode="HTML", reply_markup=back_to_menu())
+
+
 # ===== ПОМОЩЬ =====
 
 @router.message(Command("admin_help"))
@@ -811,6 +922,11 @@ async def cmd_admin_help(message: Message):
         "/del_rank &lt;игра&gt; | &lt;ранг&gt; — удалить\n"
         "/add_role &lt;игра&gt; | &lt;роль&gt; — добавить роль\n"
         "/del_role &lt;игра&gt; | &lt;роль&gt; — удалить\n\n"
+        "<b>Антифрод:</b>\n"
+        "/antifraud — справка\n"
+        "/check_antifraud &lt;id&gt; — проверить пользователя\n\n"
+        "<b>Уведомления:</b>\n"
+        "/notifications — статистика уведомлений\n\n"
         "<b>Жалобы:</b>\n"
         "/reports — список жалоб\n"
         "/hide_user &lt;id&gt; — скрыть игрока\n"
