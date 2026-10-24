@@ -28,7 +28,8 @@ from keyboards import (
     rating_stars_menu, rating_tags_menu, rating_done_menu,
     report_reasons_menu, report_confirm_menu, report_done_menu,
     inbox_menu, chat_actions_menu, block_confirm_menu,
-    unblock_menu, delete_confirm_menu, blocked_list_menu
+    unblock_menu, delete_confirm_menu, blocked_list_menu,
+    developer_menu
 )
 
 router = Router()
@@ -74,7 +75,6 @@ async def cmd_start(message: Message, state: FSMContext):
     log_event(message.from_user.id, "start")
     update_last_seen(message.from_user.id)
 
-    # Планируем напоминание о профиле через 24 часа
     if not is_profile_filled(message.from_user.id):
         schedule_notification(
             user_id=message.from_user.id,
@@ -125,7 +125,9 @@ async def cmd_help(message: Message):
         "/recent_ratings — последние оценки\n\n"
         "<b>Жалобы:</b>\n"
         "/report &lt;id&gt; — пожаловаться\n"
-        "/my_reports — жалобы на тебя",
+        "/my_reports — жалобы на тебя\n\n"
+        "<b>О проекте:</b>\n"
+        "/developer — о разработчике",
         parse_mode="HTML",
         reply_markup=main_menu()
     )
@@ -261,6 +263,37 @@ async def cmd_me(message: Message):
         f"🎯 Роль: {role}\n"
         f"🕐 Время: {time}\n"
         f"⭐ Рейтинг: {rating}/10"
+    )
+
+
+# ===== О РАЗРАБОТЧИКЕ =====
+
+@router.message(F.text == "👨‍💻 О разработчике")
+@router.message(Command("developer"))
+async def cmd_developer(message: Message):
+    """Информация о разработчике."""
+    update_last_seen(message.from_user.id)
+
+    text = (
+        "👨‍💻 <b>О разработчике</b>\n\n"
+        "Привет! Я создатель <b>DuoFinder</b> — бота для поиска напарников в играх.\n\n"
+        "Моя цель — сделать так, чтобы каждый геймер нашёл своего напарника: "
+        "не просто «тело для катки», а человека, с которым комфортно и результативно играть.\n\n"
+        "🔗 <b>Мои соцсети:</b>\n"
+        "• Twitch — стримы и игры\n"
+        "• YouTube — видео о разработке\n"
+        "• Instagram — за кулисами\n"
+        "• TikTok — короткие ролики\n\n"
+        "💖 <b>Поддержать проект:</b>\n"
+        "Если тебе нравится бот — можешь поддержать разработку. "
+        "Любая сумма помогает делать проект лучше.\n\n"
+        "Спасибо, что ты со мной! 🙏"
+    )
+
+    await message.answer(
+        text,
+        parse_mode="HTML",
+        reply_markup=developer_menu()
     )
 
 
@@ -629,11 +662,8 @@ async def process_message(message: Message, state: FSMContext):
 
     msg_id = save_message(message.from_user.id, to_user_id, text)
 
-    # ===== АНТИФРОД: создаём мэтч при взаимодействии =====
     add_match(message.from_user.id, to_user_id)
-    # ===== /АНТИФРОД =====
 
-    # ===== УВЕДОМЛЕНИЕ О ВЗАИМНОМ МЭТЧЕ =====
     if check_mutual_match(message.from_user.id, to_user_id):
         if not has_notified_mutual(message.from_user.id, to_user_id):
             schedule_notification(
@@ -647,7 +677,6 @@ async def process_message(message: Message, state: FSMContext):
                 notification_type="mutual_match",
                 data=f"{message.from_user.id}|{sender_name}"
             )
-    # ===== /УВЕДОМЛЕНИЕ =====
 
     log_event(message.from_user.id, "message_sent", f"to:{to_user_id}")
 
@@ -867,11 +896,8 @@ async def process_reply(message: Message, state: FSMContext):
 
     msg_id = save_message(message.from_user.id, to_user_id, text)
 
-    # ===== АНТИФРОД: создаём мэтч при взаимодействии =====
     add_match(message.from_user.id, to_user_id)
-    # ===== /АНТИФРОД =====
 
-    # ===== УВЕДОМЛЕНИЕ О ВЗАИМНОМ МЭТЧЕ =====
     if check_mutual_match(message.from_user.id, to_user_id):
         if not has_notified_mutual(message.from_user.id, to_user_id):
             schedule_notification(
@@ -885,7 +911,6 @@ async def process_reply(message: Message, state: FSMContext):
                 notification_type="mutual_match",
                 data=f"{message.from_user.id}|{sender_name}"
             )
-    # ===== /УВЕДОМЛЕНИЕ =====
 
     log_event(message.from_user.id, "message_sent", f"to:{to_user_id}")
 
@@ -1200,7 +1225,6 @@ async def cmd_rate(message: Message, state: FSMContext):
         await message.answer("❌ Пользователь не найден.")
         return
 
-    # ===== АНТИФРОД. УРОВЕНЬ 1 =====
     check = anti_fraud_check_v1(message.from_user.id, to_user_id)
 
     if not check["allowed"]:
@@ -1212,7 +1236,6 @@ async def cmd_rate(message: Message, state: FSMContext):
             parse_mode="HTML"
         )
         return
-    # ===== /АНТИФРОД =====
 
     if has_rated_today(message.from_user.id, to_user_id):
         await message.answer(
@@ -1349,7 +1372,6 @@ async def rating_save(callback: CallbackQuery, state: FSMContext):
 
     new_rating = recalculate_rating(to_user_id)
 
-    # ===== НАПОМИНАНИЕ ОЦЕНИТЬ В ОТВЕТ =====
     rater_name = callback.from_user.username or callback.from_user.first_name
     schedule_notification(
         user_id=to_user_id,
@@ -1357,7 +1379,6 @@ async def rating_save(callback: CallbackQuery, state: FSMContext):
         data=f"{callback.from_user.id}|{rater_name}",
         delay_seconds=3600
     )
-    # ===== /НАПОМИНАНИЕ =====
 
     log_event(callback.from_user.id, "rating_given", f"to:{to_user_id}|stars:{stars}|tags:{tags_str}")
 

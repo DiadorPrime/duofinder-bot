@@ -12,6 +12,7 @@ def main_menu():
             [KeyboardButton(text="🔍 Найти напарника")],
             [KeyboardButton(text="📬 Входящие")],
             [KeyboardButton(text="✏️ Заполнить профиль")],
+            [KeyboardButton(text="👨‍💻 О разработчике")],
         ],
         resize_keyboard=True
     )
@@ -531,3 +532,41 @@ def blocked_list_menu():
             [InlineKeyboardButton(text="🏠 В меню", callback_data="chat:menu")],
         ]
     )
+
+
+# ===== О РАЗРАБОТЧИКЕ =====
+
+def developer_menu():
+    """Меню с ссылками на соцсети разработчика."""
+    # ЗАМЕНИ ССЫЛКИ НА СВОИ
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🎮 Twitch",
+                    url="https://www.twitch.tv/raise_nik"
+                ),
+                InlineKeyboardButton(
+                    text="▶️ YouTube",
+                    url="https://www.youtube.com/channel/UCEwg8vjZOz_pSxmxfifhi0w"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📸 Instagram",
+                    url="https://instagram.com/ТВОЙ_АККАУНТ"
+                ),
+                InlineKeyboardButton(
+                    text="🎵 TikTok",
+                    url="https://tiktok.com/@ТВОЙ_АККАУНТ"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💖 Поддержать проект",
+                    url="https://www.donationalerts.com/r/raise_nik"
+                ),
+            ],
+        ]
+    )
+    return kb
