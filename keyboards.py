@@ -60,7 +60,6 @@ def games_inline_menu():
 
 
 def ranks_menu(game_name: str):
-    """Динамическое меню рангов для игры."""
     ranks = get_game_ranks(game_name)
 
     if not ranks:
@@ -82,7 +81,6 @@ def ranks_menu(game_name: str):
 
 
 def roles_menu(game_name: str = None):
-    """Динамическое меню ролей для игры."""
     if not game_name:
         kb = ReplyKeyboardMarkup(
             keyboard=[
@@ -164,6 +162,14 @@ def filter_main_menu():
             [
                 InlineKeyboardButton(text="🕐 По времени", callback_data="filter:time"),
                 InlineKeyboardButton(text="⭐ По рейтингу", callback_data="filter:rating"),
+            ],
+            [
+                InlineKeyboardButton(text="🔥 По стилю", callback_data="filter:style"),
+                InlineKeyboardButton(text="🎯 По цели", callback_data="filter:goal"),
+            ],
+            [
+                InlineKeyboardButton(text="🎤 По голосу", callback_data="filter:voice"),
+                InlineKeyboardButton(text="📊 По опыту", callback_data="filter:experience"),
             ],
             [
                 InlineKeyboardButton(text="🚫 Без токсиков", callback_data="filter:no_toxic"),
@@ -271,6 +277,14 @@ def filter_summary_menu():
             [
                 InlineKeyboardButton(text="🕐 Время", callback_data="filter:time"),
                 InlineKeyboardButton(text="⭐ Рейтинг", callback_data="filter:rating"),
+            ],
+            [
+                InlineKeyboardButton(text="🔥 Стиль", callback_data="filter:style"),
+                InlineKeyboardButton(text="🎯 Цель", callback_data="filter:goal"),
+            ],
+            [
+                InlineKeyboardButton(text="🎤 Голос", callback_data="filter:voice"),
+                InlineKeyboardButton(text="📊 Опыт", callback_data="filter:experience"),
             ],
             [
                 InlineKeyboardButton(text="🔍 Искать", callback_data="filter:search"),
@@ -537,18 +551,16 @@ def blocked_list_menu():
 # ===== О РАЗРАБОТЧИКЕ =====
 
 def developer_menu():
-    """Меню с ссылками на соцсети разработчика."""
-    # ЗАМЕНИ ССЫЛКИ НА СВОИ
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text="🎮 Twitch",
-                    url="https://www.twitch.tv/raise_nik"
+                    url="https://twitch.tv/ТВОЙ_КАНАЛ"
                 ),
                 InlineKeyboardButton(
                     text="▶️ YouTube",
-                    url="https://www.youtube.com/channel/UCEwg8vjZOz_pSxmxfifhi0w"
+                    url="https://youtube.com/@ТВОЙ_КАНАЛ"
                 ),
             ],
             [
@@ -564,9 +576,117 @@ def developer_menu():
             [
                 InlineKeyboardButton(
                     text="💖 Поддержать проект",
-                    url="https://www.donationalerts.com/r/raise_nik"
+                    url="https://www.donationalerts.com/r/ТВОЙ_НИК"
                 ),
             ],
+        ]
+    )
+    return kb
+
+
+# ===== РАСШИРЕННЫЙ ПРОФИЛЬ =====
+
+def style_menu():
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Агрессивный")],
+            [KeyboardButton(text="Тактический")],
+            [KeyboardButton(text="Фан")],
+            [KeyboardButton(text="⬅️ Назад")],
+        ],
+        resize_keyboard=True
+    )
+    return kb
+
+
+def goal_menu():
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Победа")],
+            [KeyboardButton(text="Обучение")],
+            [KeyboardButton(text="Веселье")],
+            [KeyboardButton(text="⬅️ Назад")],
+        ],
+        resize_keyboard=True
+    )
+    return kb
+
+
+def voice_menu():
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Есть микрофон")],
+            [KeyboardButton(text="Готов говорить")],
+            [KeyboardButton(text="Без голоса")],
+            [KeyboardButton(text="⬅️ Назад")],
+        ],
+        resize_keyboard=True
+    )
+    return kb
+
+
+def experience_menu():
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Новичок")],
+            [KeyboardButton(text="Средний")],
+            [KeyboardButton(text="Про")],
+            [KeyboardButton(text="⬅️ Назад")],
+        ],
+        resize_keyboard=True
+    )
+    return kb
+
+
+# ===== ФИЛЬТРЫ РАСШИРЕННОГО ПРОФИЛЯ =====
+
+def filter_style_menu():
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Агрессивный", callback_data="filter:style_set:Агрессивный")],
+            [InlineKeyboardButton(text="Тактический", callback_data="filter:style_set:Тактический")],
+            [InlineKeyboardButton(text="Фан", callback_data="filter:style_set:Фан")],
+            [InlineKeyboardButton(text="Любой стиль", callback_data="filter:style_set:any")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="filter:menu")],
+        ]
+    )
+    return kb
+
+
+def filter_goal_menu():
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Победа", callback_data="filter:goal_set:Победа")],
+            [InlineKeyboardButton(text="Обучение", callback_data="filter:goal_set:Обучение")],
+            [InlineKeyboardButton(text="Веселье", callback_data="filter:goal_set:Веселье")],
+            [InlineKeyboardButton(text="Любая цель", callback_data="filter:goal_set:any")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="filter:menu")],
+        ]
+    )
+    return kb
+
+
+def filter_voice_menu():
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Есть микрофон", callback_data="filter:voice_set:Есть микрофон")],
+            [InlineKeyboardButton(text="Готов говорить", callback_data="filter:voice_set:Готов говорить")],
+            [InlineKeyboardButton(text="Без голоса", callback_data="filter:voice_set:Без голоса")],
+            [InlineKeyboardButton(text="Любой", callback_data="filter:voice_set:any")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="filter:menu")],
+        ]
+    )
+    return kb
+
+
+def filter_experience_menu():
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Новичок", callback_data="filter:experience_set:Новичок")],
+            [InlineKeyboardButton(text="Средний", callback_data="filter:experience_set:Средний")],
+            [InlineKeyboardButton(text="Про", callback_data="filter:experience_set:Про")],
+            [InlineKeyboardButton(text="Любой опыт", callback_data="filter:experience_set:any")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="filter:menu")],
         ]
     )
     return kb

@@ -29,7 +29,9 @@ from keyboards import (
     report_reasons_menu, report_confirm_menu, report_done_menu,
     inbox_menu, chat_actions_menu, block_confirm_menu,
     unblock_menu, delete_confirm_menu, blocked_list_menu,
-    developer_menu
+    developer_menu,
+    style_menu, goal_menu, voice_menu, experience_menu,
+    filter_style_menu, filter_goal_menu, filter_voice_menu, filter_experience_menu
 )
 
 router = Router()
@@ -40,6 +42,10 @@ class ProfileForm(StatesGroup):
     rank = State()
     role = State()
     time = State()
+    style = State()
+    goal = State()
+    voice = State()
+    experience = State()
 
 
 class ChatForm(StatesGroup):
@@ -227,10 +233,75 @@ async def process_time(message: Message, state: FSMContext):
         return
     await state.update_data(time=message.text)
 
+    await state.set_state(ProfileForm.style)
+    await message.answer(
+        "🔥 Какой у тебя стиль игры?",
+        reply_markup=style_menu()
+    )
+
+
+@router.message(ProfileForm.style, ~F.text.startswith("/"))
+async def process_style(message: Message, state: FSMContext):
+    if message.text == "⬅️ Назад":
+        await state.set_state(ProfileForm.time)
+        await message.answer("Когда обычно играешь?", reply_markup=time_menu())
+        return
+
+    await state.update_data(style=message.text)
+
+    await state.set_state(ProfileForm.goal)
+    await message.answer(
+        "🎯 Какая у тебя цель в играх?",
+        reply_markup=goal_menu()
+    )
+
+
+@router.message(ProfileForm.goal, ~F.text.startswith("/"))
+async def process_goal(message: Message, state: FSMContext):
+    if message.text == "⬅️ Назад":
+        await state.set_state(ProfileForm.style)
+        await message.answer("Какой у тебя стиль игры?", reply_markup=style_menu())
+        return
+
+    await state.update_data(goal=message.text)
+
+    await state.set_state(ProfileForm.voice)
+    await message.answer(
+        "🎤 Готов ли говорить голосом?",
+        reply_markup=voice_menu()
+    )
+
+
+@router.message(ProfileForm.voice, ~F.text.startswith("/"))
+async def process_voice(message: Message, state: FSMContext):
+    if message.text == "⬅️ Назад":
+        await state.set_state(ProfileForm.goal)
+        await message.answer("Какая у тебя цель?", reply_markup=goal_menu())
+        return
+
+    await state.update_data(voice=message.text)
+
+    await state.set_state(ProfileForm.experience)
+    await message.answer(
+        "📊 Какой у тебя опыт?",
+        reply_markup=experience_menu()
+    )
+
+
+@router.message(ProfileForm.experience, ~F.text.startswith("/"))
+async def process_experience(message: Message, state: FSMContext):
+    if message.text == "⬅️ Назад":
+        await state.set_state(ProfileForm.voice)
+        await message.answer("Готов ли говорить голосом?", reply_markup=voice_menu())
+        return
+
+    await state.update_data(experience=message.text)
+
     data = await state.get_data()
     update_profile(
         message.from_user.id,
-        data["game"], data["rank"], data["role"], data["time"]
+        data["game"], data["rank"], data["role"], data["time"],
+        data.get("style"), data.get("goal"), data.get("voice"), data.get("experience")
     )
     log_event(message.from_user.id, "profile_update", data["game"])
     update_last_seen(message.from_user.id)
@@ -241,7 +312,11 @@ async def process_time(message: Message, state: FSMContext):
         f"🎮 Игра: {data['game']}\n"
         f"🏆 Ранг: {data['rank']}\n"
         f"🎯 Роль: {data['role']}\n"
-        f"🕐 Время: {data['time']}",
+        f"🕐 Время: {data['time']}\n"
+        f"🔥 Стиль: {data.get('style', '—')}\n"
+        f"🎯 Цель: {data.get('goal', '—')}\n"
+        f"🎤 Голос: {data.get('voice', '—')}\n"
+        f"📊 Опыт: {data.get('experience', '—')}",
         reply_markup=main_menu()
     )
 
@@ -255,13 +330,28 @@ async def cmd_me(message: Message):
         await message.answer("Профиль пуст. Заполни: /profile")
         return
 
-    _, username, game, rank, role, time, rating, created_at, last_seen = user
+    user_id = user[0]
+    username = user[1]
+    game = user[2]
+    rank = user[3]
+    role = user[4]
+    time = user[5]
+    style = user[6] if len(user) > 6 else None
+    goal = user[7] if len(user) > 7 else None
+    voice = user[8] if len(user) > 8 else None
+    experience = user[9] if len(user) > 9 else None
+    rating = user[10] if len(user) > 10 else 5.0
+
     await message.answer(
         f"👤 Твой профиль:\n\n"
         f"🎮 Игра: {game}\n"
         f"🏆 Ранг: {rank}\n"
         f"🎯 Роль: {role}\n"
         f"🕐 Время: {time}\n"
+        f"🔥 Стиль: {style or '—'}\n"
+        f"🎯 Цель: {goal or '—'}\n"
+        f"🎤 Голос: {voice or '—'}\n"
+        f"📊 Опыт: {experience or '—'}\n"
         f"⭐ Рейтинг: {rating}/10"
     )
 
@@ -271,7 +361,6 @@ async def cmd_me(message: Message):
 @router.message(F.text == "👨‍💻 О разработчике")
 @router.message(Command("developer"))
 async def cmd_developer(message: Message):
-    """Информация о разработчике."""
     update_last_seen(message.from_user.id)
 
     text = (
@@ -316,6 +405,10 @@ async def cmd_find(message: Message, state: FSMContext):
         filter_time=None,
         filter_rating=None,
         filter_no_toxic=False,
+        filter_style=None,
+        filter_goal=None,
+        filter_voice=None,
+        filter_experience=None,
         filter_mode="main",
     )
     await state.set_state(FilterForm.main)
@@ -371,6 +464,11 @@ def build_filter_summary(data: dict) -> str:
     no_toxic = data.get("filter_no_toxic", False)
     toxic_str = "🚫 без токсиков" if no_toxic else "все"
 
+    style = data.get("filter_style") or "любой"
+    goal = data.get("filter_goal") or "любая"
+    voice = data.get("filter_voice") or "любой"
+    experience = data.get("filter_experience") or "любой"
+
     return (
         f"🔍 <b>Фильтры поиска</b>\n\n"
         f"🎮 Игра: <b>{game}</b>\n"
@@ -378,6 +476,10 @@ def build_filter_summary(data: dict) -> str:
         f"👤 Роль: {role}\n"
         f"🕐 Время: {time}\n"
         f"⭐ Рейтинг: {rating_str}\n"
+        f"🔥 Стиль: {style}\n"
+        f"🎯 Цель: {goal}\n"
+        f"🎤 Голос: {voice}\n"
+        f"📊 Опыт: {experience}\n"
         f"🚫 Токсики: {toxic_str}\n\n"
         f"Выбери фильтры или нажми «🔍 Искать»:"
     )
@@ -390,6 +492,10 @@ async def filter_quick(callback: CallbackQuery, state: FSMContext):
     data["filter_time"] = None
     data["filter_rating"] = None
     data["filter_no_toxic"] = False
+    data["filter_style"] = None
+    data["filter_goal"] = None
+    data["filter_voice"] = None
+    data["filter_experience"] = None
     await state.update_data(**data)
 
     await run_filtered_search(callback.message, callback.from_user.id, state)
@@ -506,6 +612,114 @@ async def filter_no_toxic(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+@router.callback_query(F.data == "filter:style")
+async def filter_style(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(FilterForm.all)
+    await callback.message.edit_text(
+        "🔥 <b>Стиль игры</b>\n\nКакой стиль ищешь?",
+        parse_mode="HTML",
+        reply_markup=filter_style_menu()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("filter:style_set:"))
+async def filter_style_set(callback: CallbackQuery, state: FSMContext):
+    style_val = callback.data.split(":")[2]
+    if style_val == "any":
+        style_val = None
+
+    await state.update_data(filter_style=style_val)
+    data = await state.get_data()
+    await callback.message.edit_text(
+        build_filter_summary(data),
+        parse_mode="HTML",
+        reply_markup=filter_main_menu()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "filter:goal")
+async def filter_goal(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(FilterForm.all)
+    await callback.message.edit_text(
+        "🎯 <b>Цель</b>\n\nКакая цель?",
+        parse_mode="HTML",
+        reply_markup=filter_goal_menu()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("filter:goal_set:"))
+async def filter_goal_set(callback: CallbackQuery, state: FSMContext):
+    goal_val = callback.data.split(":")[2]
+    if goal_val == "any":
+        goal_val = None
+
+    await state.update_data(filter_goal=goal_val)
+    data = await state.get_data()
+    await callback.message.edit_text(
+        build_filter_summary(data),
+        parse_mode="HTML",
+        reply_markup=filter_main_menu()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "filter:voice")
+async def filter_voice(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(FilterForm.all)
+    await callback.message.edit_text(
+        "🎤 <b>Голос</b>\n\nКакой голос?",
+        parse_mode="HTML",
+        reply_markup=filter_voice_menu()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("filter:voice_set:"))
+async def filter_voice_set(callback: CallbackQuery, state: FSMContext):
+    voice_val = callback.data.split(":")[2]
+    if voice_val == "any":
+        voice_val = None
+
+    await state.update_data(filter_voice=voice_val)
+    data = await state.get_data()
+    await callback.message.edit_text(
+        build_filter_summary(data),
+        parse_mode="HTML",
+        reply_markup=filter_main_menu()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "filter:experience")
+async def filter_experience(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(FilterForm.all)
+    await callback.message.edit_text(
+        "📊 <b>Опыт</b>\n\nКакой опыт?",
+        parse_mode="HTML",
+        reply_markup=filter_experience_menu()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("filter:experience_set:"))
+async def filter_experience_set(callback: CallbackQuery, state: FSMContext):
+    exp_val = callback.data.split(":")[2]
+    if exp_val == "any":
+        exp_val = None
+
+    await state.update_data(filter_experience=exp_val)
+    data = await state.get_data()
+    await callback.message.edit_text(
+        build_filter_summary(data),
+        parse_mode="HTML",
+        reply_markup=filter_main_menu()
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data == "filter:all")
 async def filter_all(callback: CallbackQuery, state: FSMContext):
     await state.set_state(FilterForm.all)
@@ -535,8 +749,12 @@ async def run_filtered_search(message: Message, user_id: int, state: FSMContext)
     time_val = data.get("filter_time")
     rating = data.get("filter_rating")
     no_toxic = data.get("filter_no_toxic", False)
+    style = data.get("filter_style")
+    goal = data.get("filter_goal")
+    voice = data.get("filter_voice")
+    experience = data.get("filter_experience")
 
-    log_event(user_id, "find", f"{game}|{rank}|{role}|{time_val}|{rating}")
+    log_event(user_id, "find", f"{game}|{rank}|{role}|{time_val}|{rating}|{style}|{goal}|{voice}|{experience}")
 
     partners = find_partner_filtered_v2(
         user_id=user_id,
@@ -546,6 +764,10 @@ async def run_filtered_search(message: Message, user_id: int, state: FSMContext)
         time=time_val,
         min_rating=rating,
         exclude_toxic=no_toxic,
+        style=style,
+        goal=goal,
+        voice=voice,
+        experience=experience,
         limit=5
     )
 
@@ -570,11 +792,13 @@ async def run_filtered_search(message: Message, user_id: int, state: FSMContext)
     text = f"🔍 <b>Найдено напарников: {len(partners)}</b>\n\n"
 
     for p in partners:
-        uid, username, p_game, p_rank, p_role, p_time, p_rating = p
+        uid, username, p_game, p_rank, p_role, p_time, p_rating, p_style, p_goal, p_voice, p_exp = p
         text += (
             f"👤 @{username or 'без имени'}\n"
             f"🎮 {p_game} | 🏆 {p_rank}\n"
             f"🎯 {p_role} | 🕐 {p_time}\n"
+            f"🔥 {p_style or '—'} | 🎯 {p_goal or '—'}\n"
+            f"🎤 {p_voice or '—'} | 📊 {p_exp or '—'}\n"
             f"⭐ {p_rating}/10\n"
             f"Написать: /msg_{uid}\n\n"
         )
@@ -1430,7 +1654,7 @@ async def cmd_my_rating(message: Message):
         return
 
     user = get_profile(message.from_user.id)
-    rating = user[6] if user else 5.0
+    rating = user[10] if user and len(user) > 10 else 5.0
 
     text = f"⭐ <b>Твоя статистика оценок</b>\n\n"
     text += f"Средняя оценка: <b>{stats['avg_stars']}/5</b>\n"

@@ -17,6 +17,10 @@ def init_db():
             rank TEXT,
             role TEXT,
             time TEXT,
+            style TEXT DEFAULT NULL,
+            goal TEXT DEFAULT NULL,
+            voice TEXT DEFAULT NULL,
+            experience TEXT DEFAULT NULL,
             rating REAL DEFAULT 5.0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -52,6 +56,7 @@ def migrate_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
+    # Миграция last_seen
     try:
         cursor.execute(
             "ALTER TABLE users ADD COLUMN last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
@@ -60,6 +65,20 @@ def migrate_db():
         print("✅ Добавлено поле last_seen")
     except sqlite3.OperationalError:
         pass
+
+    # Миграция новых полей профиля
+    for field, field_type in [
+        ("style", "TEXT"),
+        ("goal", "TEXT"),
+        ("voice", "TEXT"),
+        ("experience", "TEXT"),
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE users ADD COLUMN {field} {field_type} DEFAULT NULL")
+            conn.commit()
+            print(f"✅ Добавлено поле {field}")
+        except sqlite3.OperationalError:
+            pass
 
     conn.close()
 
@@ -152,7 +171,6 @@ def init_messages():
 
 
 def init_ratings_extended():
-    """Создаёт расширенную таблицу оценок."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -175,7 +193,6 @@ def init_ratings_extended():
 
 
 def init_reports():
-    """Создаёт таблицу жалоб."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -204,6 +221,201 @@ def init_reports():
     conn.close()
 
 
+def init_game_data():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS game_ranks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_name TEXT NOT NULL,
+            rank_name TEXT NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            UNIQUE(game_name, rank_name)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS game_roles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_name TEXT NOT NULL,
+            role_name TEXT NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            UNIQUE(game_name, role_name)
+        )
+    """)
+
+    cursor.execute("SELECT COUNT(*) FROM game_ranks")
+    ranks_empty = cursor.fetchone()[0] == 0
+
+    cursor.execute("SELECT COUNT(*) FROM game_roles")
+    roles_empty = cursor.fetchone()[0] == 0
+
+    if ranks_empty:
+        default_ranks = [
+            ("Dota 2", "Herald", 1),
+            ("Dota 2", "Guardian", 2),
+            ("Dota 2", "Crusader", 3),
+            ("Dota 2", "Archon", 4),
+            ("Dota 2", "Legend", 5),
+            ("Dota 2", "Ancient", 6),
+            ("Dota 2", "Divine", 7),
+            ("Dota 2", "Immortal", 8),
+
+            ("CS2", "Silver", 1),
+            ("CS2", "Gold Nova", 2),
+            ("CS2", "Master Guardian", 3),
+            ("CS2", "Distinguished Master Guardian", 4),
+            ("CS2", "Legendary Eagle", 5),
+            ("CS2", "Legendary Eagle Master", 6),
+            ("CS2", "Supreme Master First Class", 7),
+            ("CS2", "Global Elite", 8),
+
+            ("Valorant", "Iron", 1),
+            ("Valorant", "Bronze", 2),
+            ("Valorant", "Silver", 3),
+            ("Valorant", "Gold", 4),
+            ("Valorant", "Platinum", 5),
+            ("Valorant", "Diamond", 6),
+            ("Valorant", "Ascendant", 7),
+            ("Valorant", "Immortal", 8),
+            ("Valorant", "Radiant", 9),
+
+            ("League of Legends", "Iron", 1),
+            ("League of Legends", "Bronze", 2),
+            ("League of Legends", "Silver", 3),
+            ("League of Legends", "Gold", 4),
+            ("League of Legends", "Platinum", 5),
+            ("League of Legends", "Emerald", 6),
+            ("League of Legends", "Diamond", 7),
+            ("League of Legends", "Master", 8),
+            ("League of Legends", "Grandmaster", 9),
+            ("League of Legends", "Challenger", 10),
+
+            ("Mobile Legends", "Warrior", 1),
+            ("Mobile Legends", "Elite", 2),
+            ("Mobile Legends", "Master", 3),
+            ("Mobile Legends", "Grandmaster", 4),
+            ("Mobile Legends", "Epic", 5),
+            ("Mobile Legends", "Legend", 6),
+            ("Mobile Legends", "Mythic", 7),
+            ("Mobile Legends", "Mythical Glory", 8),
+
+            ("PUBG", "Bronze", 1),
+            ("PUBG", "Silver", 2),
+            ("PUBG", "Gold", 3),
+            ("PUBG", "Platinum", 4),
+            ("PUBG", "Diamond", 5),
+            ("PUBG", "Crown", 6),
+            ("PUBG", "Ace", 7),
+            ("PUBG", "Conqueror", 8),
+
+            ("Fortnite", "Bronze", 1),
+            ("Fortnite", "Silver", 2),
+            ("Fortnite", "Gold", 3),
+            ("Fortnite", "Platinum", 4),
+            ("Fortnite", "Diamond", 5),
+            ("Fortnite", "Elite", 6),
+            ("Fortnite", "Champion", 7),
+            ("Fortnite", "Unreal", 8),
+
+            ("Apex Legends", "Rookie", 1),
+            ("Apex Legends", "Bronze", 2),
+            ("Apex Legends", "Silver", 3),
+            ("Apex Legends", "Gold", 4),
+            ("Apex Legends", "Platinum", 5),
+            ("Apex Legends", "Diamond", 6),
+            ("Apex Legends", "Master", 7),
+            ("Apex Legends", "Predator", 8),
+
+            ("Overwatch 2", "Bronze", 1),
+            ("Overwatch 2", "Silver", 2),
+            ("Overwatch 2", "Gold", 3),
+            ("Overwatch 2", "Platinum", 4),
+            ("Overwatch 2", "Diamond", 5),
+            ("Overwatch 2", "Master", 6),
+            ("Overwatch 2", "Grandmaster", 7),
+            ("Overwatch 2", "Champion", 8),
+
+            ("Minecraft", "Новичок", 1),
+            ("Minecraft", "Средний", 2),
+            ("Minecraft", "Опытный", 3),
+            ("Minecraft", "Про", 4),
+        ]
+
+        for game, rank, order in default_ranks:
+            cursor.execute("""
+                INSERT OR IGNORE INTO game_ranks (game_name, rank_name, sort_order)
+                VALUES (?, ?, ?)
+            """, (game, rank, order))
+
+    if roles_empty:
+        default_roles = [
+            ("Dota 2", "Керри", 1),
+            ("Dota 2", "Мид", 2),
+            ("Dota 2", "Оффлейн", 3),
+            ("Dota 2", "Саппорт", 4),
+
+            ("CS2", "Снайпер", 1),
+            ("CS2", "Entry Fragger", 2),
+            ("CS2", "Support", 3),
+            ("CS2", "IGL (капитан)", 4),
+            ("CS2", "Lurker", 5),
+
+            ("Valorant", "Duelist", 1),
+            ("Valorant", "Controller", 2),
+            ("Valorant", "Initiator", 3),
+            ("Valorant", "Sentinel", 4),
+
+            ("League of Legends", "Top", 1),
+            ("League of Legends", "Jungle", 2),
+            ("League of Legends", "Mid", 3),
+            ("League of Legends", "ADC", 4),
+            ("League of Legends", "Support", 5),
+
+            ("Mobile Legends", "Tank", 1),
+            ("Mobile Legends", "Fighter", 2),
+            ("Mobile Legends", "Assassin", 3),
+            ("Mobile Legends", "Mage", 4),
+            ("Mobile Legends", "Marksman", 5),
+            ("Mobile Legends", "Support", 6),
+
+            ("PUBG", "Штурмовик", 1),
+            ("PUBG", "Снайпер", 2),
+            ("PUBG", "Поддержка", 3),
+            ("PUBG", "Разведчик", 4),
+
+            ("Fortnite", "Builder", 1),
+            ("Fortnite", "Fighter", 2),
+            ("Fortnite", "Support", 3),
+
+            ("Apex Legends", "Assault", 1),
+            ("Apex Legends", "Skirmisher", 2),
+            ("Apex Legends", "Recon", 3),
+            ("Apex Legends", "Support", 4),
+            ("Apex Legends", "Controller", 5),
+
+            ("Overwatch 2", "Tank", 1),
+            ("Overwatch 2", "Damage", 2),
+            ("Overwatch 2", "Support", 3),
+
+            ("Minecraft", "Строитель", 1),
+            ("Minecraft", "Шахтёр", 2),
+            ("Minecraft", "Фермер", 3),
+            ("Minecraft", "Воин", 4),
+            ("Minecraft", "Исследователь", 5),
+        ]
+
+        for game, role, order in default_roles:
+            cursor.execute("""
+                INSERT OR IGNORE INTO game_roles (game_name, role_name, sort_order)
+                VALUES (?, ?, ?)
+            """, (game, role, order))
+
+    conn.commit()
+    conn.close()
+
+
 # ===== ПОЛЬЗОВАТЕЛИ =====
 
 def add_user(user_id, username):
@@ -217,14 +429,15 @@ def add_user(user_id, username):
     conn.close()
 
 
-def update_profile(user_id, game, rank, role, time):
+def update_profile(user_id, game, rank, role, time, style=None, goal=None, voice=None, experience=None):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE users
-        SET game = ?, rank = ?, role = ?, time = ?
+        SET game = ?, rank = ?, role = ?, time = ?,
+            style = ?, goal = ?, voice = ?, experience = ?
         WHERE user_id = ?
-    """, (game, rank, role, time, user_id))
+    """, (game, rank, role, time, style, goal, voice, experience, user_id))
     conn.commit()
     conn.close()
 
@@ -253,56 +466,6 @@ def find_partner(user_id, game, rank):
     return users
 
 
-def find_partner_filtered(
-    user_id: int,
-    game: str,
-    rank: str = None,
-    role: str = None,
-    time: str = None,
-    min_rating: float = None,
-    exclude_toxic: bool = False,
-    limit: int = 5
-):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    query = """
-        SELECT user_id, username, game, rank, role, time, rating
-        FROM users
-        WHERE user_id != ?
-          AND game = ?
-          AND game IS NOT NULL
-    """
-    params = [user_id, game]
-
-    if rank:
-        query += " AND rank = ?"
-        params.append(rank)
-
-    if role:
-        query += " AND role = ?"
-        params.append(role)
-
-    if time:
-        query += " AND time = ?"
-        params.append(time)
-
-    if min_rating is not None:
-        query += " AND rating >= ?"
-        params.append(min_rating)
-
-    if exclude_toxic:
-        query += " AND rating >= 5.0"
-
-    query += " ORDER BY rating DESC LIMIT ?"
-    params.append(limit)
-
-    cursor.execute(query, params)
-    users = cursor.fetchall()
-    conn.close()
-    return users
-
-
 def find_partner_filtered_v2(
     user_id: int,
     game: str,
@@ -311,14 +474,18 @@ def find_partner_filtered_v2(
     time: str = None,
     min_rating: float = None,
     exclude_toxic: bool = False,
+    style: str = None,
+    goal: str = None,
+    voice: str = None,
+    experience: str = None,
     limit: int = 5
 ):
-    """Ищет напарников. Исключает скрытых."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
     query = """
-        SELECT user_id, username, game, rank, role, time, rating
+        SELECT user_id, username, game, rank, role, time, rating,
+               style, goal, voice, experience
         FROM users
         WHERE user_id != ?
           AND game = ?
@@ -348,6 +515,22 @@ def find_partner_filtered_v2(
 
     if exclude_toxic:
         query += " AND rating >= 5.0"
+
+    if style:
+        query += " AND style = ?"
+        params.append(style)
+
+    if goal:
+        query += " AND goal = ?"
+        params.append(goal)
+
+    if voice:
+        query += " AND voice = ?"
+        params.append(voice)
+
+    if experience:
+        query += " AND experience = ?"
+        params.append(experience)
 
     query += " ORDER BY rating DESC LIMIT ?"
     params.append(limit)
@@ -657,10 +840,129 @@ def toggle_game(name: str) -> bool:
     return updated
 
 
+# ===== РАНГИ И РОЛИ ДЛЯ ИГР =====
+
+def get_game_ranks(game_name: str):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT rank_name FROM game_ranks
+        WHERE game_name = ?
+        ORDER BY sort_order
+    """, (game_name,))
+    ranks = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return ranks
+
+
+def get_game_roles(game_name: str):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT role_name FROM game_roles
+        WHERE game_name = ?
+        ORDER BY sort_order
+    """, (game_name,))
+    roles = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return roles
+
+
+def add_game_rank(game_name: str, rank_name: str) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO game_ranks (game_name, rank_name)
+            VALUES (?, ?)
+        """, (game_name, rank_name))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
+
+
+def add_game_role(game_name: str, role_name: str) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO game_roles (game_name, role_name)
+            VALUES (?, ?)
+        """, (game_name, role_name))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
+
+
+def delete_game_rank(game_name: str, rank_name: str) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        DELETE FROM game_ranks WHERE game_name = ? AND rank_name = ?
+    """, (game_name, rank_name))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def delete_game_role(game_name: str, role_name: str) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        DELETE FROM game_roles WHERE game_name = ? AND role_name = ?
+    """, (game_name, role_name))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def get_all_game_ranks():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT game_name, rank_name FROM game_ranks
+        ORDER BY game_name, sort_order
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+
+    result = {}
+    for game, rank in rows:
+        if game not in result:
+            result[game] = []
+        result[game].append(rank)
+    return result
+
+
+def get_all_game_roles():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT game_name, role_name FROM game_roles
+        ORDER BY game_name, sort_order
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+
+    result = {}
+    for game, role in rows:
+        if game not in result:
+            result[game] = []
+        result[game].append(role)
+    return result
+
+
 # ===== СООБЩЕНИЯ =====
 
 def save_message(from_user_id: int, to_user_id: int, text: str, reply_to_id: int = None) -> int:
-    """Сохраняет сообщение. Возвращает ID."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -674,7 +976,6 @@ def save_message(from_user_id: int, to_user_id: int, text: str, reply_to_id: int
 
 
 def get_inbox(user_id: int, limit: int = 10):
-    """Возвращает входящие сообщения (последнее от каждого отправителя)."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -708,7 +1009,6 @@ def get_inbox(user_id: int, limit: int = 10):
 
 
 def get_conversation(user1_id: int, user2_id: int, limit: int = 30):
-    """Возвращает диалог между двумя пользователями."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -726,7 +1026,6 @@ def get_conversation(user1_id: int, user2_id: int, limit: int = 30):
 
 
 def mark_as_read(user_id: int, from_user_id: int):
-    """Помечает все сообщения от пользователя как прочитанные."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -739,7 +1038,6 @@ def mark_as_read(user_id: int, from_user_id: int):
 
 
 def count_unread(user_id: int) -> int:
-    """Считает непрочитанные сообщения."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -752,7 +1050,6 @@ def count_unread(user_id: int) -> int:
 
 
 def count_unread_from(user_id: int, from_user_id: int) -> int:
-    """Считает непрочитанные от конкретного пользователя."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -766,7 +1063,6 @@ def count_unread_from(user_id: int, from_user_id: int) -> int:
 
 
 def get_last_sender(user_id: int):
-    """Возвращает ID последнего, кто писал пользователю."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -781,7 +1077,6 @@ def get_last_sender(user_id: int):
 
 
 def delete_conversation(user_id: int, other_user_id: int) -> int:
-    """Мягко удаляет диалог между двумя пользователями."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -798,7 +1093,6 @@ def delete_conversation(user_id: int, other_user_id: int) -> int:
 
 
 def search_messages(user_id: int, query: str, limit: int = 20):
-    """Ищет сообщения пользователя по тексту."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -816,7 +1110,6 @@ def search_messages(user_id: int, query: str, limit: int = 20):
 
 
 def count_messages_last_hour(user_id: int) -> int:
-    """Считает сообщения, отправленные за последний час."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -832,7 +1125,6 @@ def count_messages_last_hour(user_id: int) -> int:
 # ===== БЛОКИРОВКИ =====
 
 def block_user(user_id: int, blocked_user_id: int) -> bool:
-    """Блокирует пользователя. Возвращает True, если удалось."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     try:
@@ -849,7 +1141,6 @@ def block_user(user_id: int, blocked_user_id: int) -> bool:
 
 
 def unblock_user(user_id: int, blocked_user_id: int) -> bool:
-    """Разблокирует пользователя. Возвращает True, если удалось."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -863,7 +1154,6 @@ def unblock_user(user_id: int, blocked_user_id: int) -> bool:
 
 
 def is_blocked(user_id: int, other_user_id: int) -> bool:
-    """Проверяет, заблокирован ли пользователь."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -876,7 +1166,6 @@ def is_blocked(user_id: int, other_user_id: int) -> bool:
 
 
 def get_blocked_users(user_id: int):
-    """Возвращает список заблокированных пользователей."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -894,7 +1183,6 @@ def get_blocked_users(user_id: int):
 # ===== ОЦЕНКИ =====
 
 def add_rating_v2(from_user_id: int, to_user_id: int, stars: int, tags: str = "", comment: str = ""):
-    """Добавляет оценку. Возвращает True, если удалось."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     try:
@@ -911,7 +1199,6 @@ def add_rating_v2(from_user_id: int, to_user_id: int, stars: int, tags: str = ""
 
 
 def get_user_ratings(user_id: int, limit: int = 10):
-    """Возвращает последние оценки пользователя."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -928,7 +1215,6 @@ def get_user_ratings(user_id: int, limit: int = 10):
 
 
 def get_user_rating_stats(user_id: int) -> dict:
-    """Возвращает статистику оценок пользователя."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -969,7 +1255,6 @@ def get_user_rating_stats(user_id: int) -> dict:
 
 
 def has_rated_today(from_user_id: int, to_user_id: int) -> bool:
-    """Проверяет, оценивал ли уже пользователь сегодня."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -983,7 +1268,6 @@ def has_rated_today(from_user_id: int, to_user_id: int) -> bool:
 
 
 def recalculate_rating(to_user_id: int):
-    """Пересчитывает рейтинг пользователя на основе оценок."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -1041,7 +1325,6 @@ def recalculate_rating(to_user_id: int):
 # ===== ЖАЛОБЫ =====
 
 def add_report(from_user_id: int, to_user_id: int, reason: str, comment: str = "") -> bool:
-    """Добавляет жалобу. Возвращает True, если удалось."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -1066,7 +1349,6 @@ def add_report(from_user_id: int, to_user_id: int, reason: str, comment: str = "
 
 
 def get_user_reports_count(user_id: int, days: int = 7) -> int:
-    """Возвращает количество жалоб на пользователя за N дней."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -1080,7 +1362,6 @@ def get_user_reports_count(user_id: int, days: int = 7) -> int:
 
 
 def get_user_reports(user_id: int, limit: int = 20):
-    """Возвращает жалобы на пользователя."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -1097,7 +1378,6 @@ def get_user_reports(user_id: int, limit: int = 20):
 
 
 def get_all_reports(limit: int = 50, offset: int = 0):
-    """Возвращает все жалобы (для админа)."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -1115,7 +1395,6 @@ def get_all_reports(limit: int = 50, offset: int = 0):
 
 
 def get_reports_count() -> int:
-    """Общее количество жалоб."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM reports")
@@ -1125,7 +1404,6 @@ def get_reports_count() -> int:
 
 
 def hide_user(user_id: int, reason: str = "", days: int = 7):
-    """Скрывает пользователя из выдачи на N дней."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -1137,7 +1415,6 @@ def hide_user(user_id: int, reason: str = "", days: int = 7):
 
 
 def is_user_hidden(user_id: int) -> bool:
-    """Проверяет, скрыт ли пользователь."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -1151,7 +1428,6 @@ def is_user_hidden(user_id: int) -> bool:
 
 
 def unhide_user(user_id: int):
-    """Возвращает пользователя из скрытых."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM hidden_users WHERE user_id = ?", (user_id,))
@@ -1160,7 +1436,6 @@ def unhide_user(user_id: int):
 
 
 def check_and_hide_user(user_id: int):
-    """Проверяет жалобы и скрывает пользователя, если их слишком много."""
     count = get_user_reports_count(user_id, days=7)
 
     if count >= 3:
@@ -1177,510 +1452,10 @@ def check_and_hide_user(user_id: int):
         return True
     return False
 
-def init_game_data():
-    """Создаёт таблицы рангов и ролей для игр и наполняет их."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS game_ranks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            game_name TEXT NOT NULL,
-            rank_name TEXT NOT NULL,
-            sort_order INTEGER DEFAULT 0,
-            UNIQUE(game_name, rank_name)
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS game_roles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            game_name TEXT NOT NULL,
-            role_name TEXT NOT NULL,
-            sort_order INTEGER DEFAULT 0,
-            UNIQUE(game_name, role_name)
-        )
-    """)
-
-    # Проверяем, пустые ли таблицы
-    cursor.execute("SELECT COUNT(*) FROM game_ranks")
-    ranks_empty = cursor.fetchone()[0] == 0
-
-    cursor.execute("SELECT COUNT(*) FROM game_roles")
-    roles_empty = cursor.fetchone()[0] == 0
-
-    if ranks_empty:
-        default_ranks = [
-            # Dota 2
-            ("Dota 2", "Herald", 1),
-            ("Dota 2", "Guardian", 2),
-            ("Dota 2", "Crusader", 3),
-            ("Dota 2", "Archon", 4),
-            ("Dota 2", "Legend", 5),
-            ("Dota 2", "Ancient", 6),
-            ("Dota 2", "Divine", 7),
-            ("Dota 2", "Immortal", 8),
-
-            # CS2
-            ("CS2", "Silver", 1),
-            ("CS2", "Gold Nova", 2),
-            ("CS2", "Master Guardian", 3),
-            ("CS2", "Distinguished Master Guardian", 4),
-            ("CS2", "Legendary Eagle", 5),
-            ("CS2", "Legendary Eagle Master", 6),
-            ("CS2", "Supreme Master First Class", 7),
-            ("CS2", "Global Elite", 8),
-
-            # Valorant
-            ("Valorant", "Iron", 1),
-            ("Valorant", "Bronze", 2),
-            ("Valorant", "Silver", 3),
-            ("Valorant", "Gold", 4),
-            ("Valorant", "Platinum", 5),
-            ("Valorant", "Diamond", 6),
-            ("Valorant", "Ascendant", 7),
-            ("Valorant", "Immortal", 8),
-            ("Valorant", "Radiant", 9),
-
-            # League of Legends
-            ("League of Legends", "Iron", 1),
-            ("League of Legends", "Bronze", 2),
-            ("League of Legends", "Silver", 3),
-            ("League of Legends", "Gold", 4),
-            ("League of Legends", "Platinum", 5),
-            ("League of Legends", "Emerald", 6),
-            ("League of Legends", "Diamond", 7),
-            ("League of Legends", "Master", 8),
-            ("League of Legends", "Grandmaster", 9),
-            ("League of Legends", "Challenger", 10),
-
-            # Mobile Legends
-            ("Mobile Legends", "Warrior", 1),
-            ("Mobile Legends", "Elite", 2),
-            ("Mobile Legends", "Master", 3),
-            ("Mobile Legends", "Grandmaster", 4),
-            ("Mobile Legends", "Epic", 5),
-            ("Mobile Legends", "Legend", 6),
-            ("Mobile Legends", "Mythic", 7),
-            ("Mobile Legends", "Mythical Glory", 8),
-
-            # PUBG
-            ("PUBG", "Bronze", 1),
-            ("PUBG", "Silver", 2),
-            ("PUBG", "Gold", 3),
-            ("PUBG", "Platinum", 4),
-            ("PUBG", "Diamond", 5),
-            ("PUBG", "Crown", 6),
-            ("PUBG", "Ace", 7),
-            ("PUBG", "Conqueror", 8),
-
-            # Fortnite
-            ("Fortnite", "Bronze", 1),
-            ("Fortnite", "Silver", 2),
-            ("Fortnite", "Gold", 3),
-            ("Fortnite", "Platinum", 4),
-            ("Fortnite", "Diamond", 5),
-            ("Fortnite", "Elite", 6),
-            ("Fortnite", "Champion", 7),
-            ("Fortnite", "Unreal", 8),
-
-            # Apex Legends
-            ("Apex Legends", "Rookie", 1),
-            ("Apex Legends", "Bronze", 2),
-            ("Apex Legends", "Silver", 3),
-            ("Apex Legends", "Gold", 4),
-            ("Apex Legends", "Platinum", 5),
-            ("Apex Legends", "Diamond", 6),
-            ("Apex Legends", "Master", 7),
-            ("Apex Legends", "Predator", 8),
-
-            # Overwatch 2
-            ("Overwatch 2", "Bronze", 1),
-            ("Overwatch 2", "Silver", 2),
-            ("Overwatch 2", "Gold", 3),
-            ("Overwatch 2", "Platinum", 4),
-            ("Overwatch 2", "Diamond", 5),
-            ("Overwatch 2", "Master", 6),
-            ("Overwatch 2", "Grandmaster", 7),
-            ("Overwatch 2", "Champion", 8),
-
-            # Minecraft
-            ("Minecraft", "Новичок", 1),
-            ("Minecraft", "Средний", 2),
-            ("Minecraft", "Опытный", 3),
-            ("Minecraft", "Про", 4),
-        ]
-
-        for game, rank, order in default_ranks:
-            cursor.execute("""
-                INSERT OR IGNORE INTO game_ranks (game_name, rank_name, sort_order)
-                VALUES (?, ?, ?)
-            """, (game, rank, order))
-
-    if roles_empty:
-        default_roles = [
-            # Dota 2
-            ("Dota 2", "Керри", 1),
-            ("Dota 2", "Мид", 2),
-            ("Dota 2", "Оффлейн", 3),
-            ("Dota 2", "Саппорт", 4),
-
-            # CS2
-            ("CS2", "Снайпер", 1),
-            ("CS2", "Entry Fragger", 2),
-            ("CS2", "Support", 3),
-            ("CS2", "IGL (капитан)", 4),
-            ("CS2", "Lurker", 5),
-
-            # Valorant
-            ("Valorant", "Duelist", 1),
-            ("Valorant", "Controller", 2),
-            ("Valorant", "Initiator", 3),
-            ("Valorant", "Sentinel", 4),
-
-            # League of Legends
-            ("League of Legends", "Top", 1),
-            ("League of Legends", "Jungle", 2),
-            ("League of Legends", "Mid", 3),
-            ("League of Legends", "ADC", 4),
-            ("League of Legends", "Support", 5),
-
-            # Mobile Legends
-            ("Mobile Legends", "Tank", 1),
-            ("Mobile Legends", "Fighter", 2),
-            ("Mobile Legends", "Assassin", 3),
-            ("Mobile Legends", "Mage", 4),
-            ("Mobile Legends", "Marksman", 5),
-            ("Mobile Legends", "Support", 6),
-
-            # PUBG
-            ("PUBG", "Штурмовик", 1),
-            ("PUBG", "Снайпер", 2),
-            ("PUBG", "Поддержка", 3),
-            ("PUBG", "Разведчик", 4),
-
-            # Fortnite
-            ("Fortnite", "Builder", 1),
-            ("Fortnite", "Fighter", 2),
-            ("Fortnite", "Support", 3),
-
-            # Apex Legends
-            ("Apex Legends", "Assault", 1),
-            ("Apex Legends", "Skirmisher", 2),
-            ("Apex Legends", "Recon", 3),
-            ("Apex Legends", "Support", 4),
-            ("Apex Legends", "Controller", 5),
-
-            # Overwatch 2
-            ("Overwatch 2", "Tank", 1),
-            ("Overwatch 2", "Damage", 2),
-            ("Overwatch 2", "Support", 3),
-
-            # Minecraft
-            ("Minecraft", "Строитель", 1),
-            ("Minecraft", "Шахтёр", 2),
-            ("Minecraft", "Фермер", 3),
-            ("Minecraft", "Воин", 4),
-            ("Minecraft", "Исследователь", 5),
-        ]
-
-        for game, role, order in default_roles:
-            cursor.execute("""
-                INSERT OR IGNORE INTO game_roles (game_name, role_name, sort_order)
-                VALUES (?, ?, ?)
-            """, (game, role, order))
-
-    conn.commit()
-    conn.close()
-
-
-def get_game_ranks(game_name: str):
-    """Возвращает ранги для игры."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT rank_name FROM game_ranks
-        WHERE game_name = ?
-        ORDER BY sort_order
-    """, (game_name,))
-    ranks = [row[0] for row in cursor.fetchall()]
-    conn.close()
-    return ranks
-
-
-def get_game_roles(game_name: str):
-    """Возвращает роли для игры."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT role_name FROM game_roles
-        WHERE game_name = ?
-        ORDER BY sort_order
-    """, (game_name,))
-    roles = [row[0] for row in cursor.fetchall()]
-    conn.close()
-    return roles
-
-
-def add_game_rank(game_name: str, rank_name: str) -> bool:
-    """Добавляет ранг для игры."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            INSERT INTO game_ranks (game_name, rank_name)
-            VALUES (?, ?)
-        """, (game_name, rank_name))
-        conn.commit()
-        conn.close()
-        return True
-    except sqlite3.IntegrityError:
-        conn.close()
-        return False
-
-
-def add_game_role(game_name: str, role_name: str) -> bool:
-    """Добавляет роль для игры."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            INSERT INTO game_roles (game_name, role_name)
-            VALUES (?, ?)
-        """, (game_name, role_name))
-        conn.commit()
-        conn.close()
-        return True
-    except sqlite3.IntegrityError:
-        conn.close()
-        return False
-
-
-def delete_game_rank(game_name: str, rank_name: str) -> bool:
-    """Удаляет ранг игры."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("""
-        DELETE FROM game_ranks WHERE game_name = ? AND rank_name = ?
-    """, (game_name, rank_name))
-    deleted = cursor.rowcount > 0
-    conn.commit()
-    conn.close()
-    return deleted
-
-
-def delete_game_role(game_name: str, role_name: str) -> bool:
-    """Удаляет роль игры."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("""
-        DELETE FROM game_roles WHERE game_name = ? AND role_name = ?
-    """, (game_name, role_name))
-    deleted = cursor.rowcount > 0
-    conn.commit()
-    conn.close()
-    return deleted
-
-
-def get_all_game_ranks():
-    """Возвращает все ранги по играм."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT game_name, rank_name FROM game_ranks
-        ORDER BY game_name, sort_order
-    """)
-    rows = cursor.fetchall()
-    conn.close()
-
-    result = {}
-    for game, rank in rows:
-        if game not in result:
-            result[game] = []
-        result[game].append(rank)
-    return result
-
-
-def get_all_game_roles():
-    """Возвращает все роли по играм."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT game_name, role_name FROM game_roles
-        ORDER BY game_name, sort_order
-    """)
-    rows = cursor.fetchall()
-    conn.close()
-
-    result = {}
-    for game, role in rows:
-        if game not in result:
-            result[game] = []
-        result[game].append(role)
-    return result
-
-# ===== УВЕДОМЛЕНИЯ =====
-
-def init_notifications():
-    """Создаёт таблицу уведомлений."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS notifications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            notification_type TEXT NOT NULL,
-            data TEXT DEFAULT '',
-            is_sent INTEGER DEFAULT 0,
-            send_at TIMESTAMP,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-def schedule_notification(user_id: int, notification_type: str, data: str = "", delay_seconds: int = 0) -> int:
-    """
-    Планирует уведомление.
-    delay_seconds — через сколько секунд отправить (0 = сразу).
-    Возвращает ID уведомления.
-    """
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    if delay_seconds > 0:
-        cursor.execute("""
-            INSERT INTO notifications (user_id, notification_type, data, send_at)
-            VALUES (?, ?, ?, datetime('now', ?))
-        """, (user_id, notification_type, data, f'+{delay_seconds} seconds'))
-    else:
-        cursor.execute("""
-            INSERT INTO notifications (user_id, notification_type, data, send_at)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        """, (user_id, notification_type, data))
-
-    notif_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    return notif_id
-
-
-def get_pending_notifications(limit: int = 100):
-    """
-    Возвращает уведомления, которые пора отправить.
-    """
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, user_id, notification_type, data
-        FROM notifications
-        WHERE is_sent = 0
-          AND send_at <= CURRENT_TIMESTAMP
-        ORDER BY send_at ASC
-        LIMIT ?
-    """, (limit,))
-    notifs = cursor.fetchall()
-    conn.close()
-    return notifs
-
-
-def mark_notification_sent(notification_id: int):
-    """Помечает уведомление как отправленное."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE notifications SET is_sent = 1 WHERE id = ?
-    """, (notification_id,))
-    conn.commit()
-    conn.close()
-
-
-def has_pending_notification(user_id: int, notification_type: str) -> bool:
-    """
-    Проверяет, есть ли уже запланированное уведомление этого типа.
-    Чтобы не спамить.
-    """
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT COUNT(*) FROM notifications
-        WHERE user_id = ?
-          AND notification_type = ?
-          AND is_sent = 0
-    """, (user_id, notification_type))
-    count = cursor.fetchone()[0]
-    conn.close()
-    return count > 0
-
-
-def cleanup_old_notifications(days: int = 7):
-    """Удаляет старые отправленные уведомления."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("""
-        DELETE FROM notifications
-        WHERE is_sent = 1
-          AND created_at < datetime('now', ?)
-    """, (f'-{days} days',))
-    conn.commit()
-    conn.close()
-
-
-# ===== ВЗАИМНЫЕ МЭТЧИ =====
-
-def check_mutual_match(user1_id: int, user2_id: int) -> bool:
-    """
-    Проверяет, есть ли взаимный мэтч между двумя пользователями.
-    Взаимный = каждый отправил сообщение другому.
-    """
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    # Проверяем, писал ли user1 пользователю user2
-    cursor.execute("""
-        SELECT COUNT(*) FROM messages
-        WHERE from_user_id = ? AND to_user_id = ? AND is_deleted = 0
-    """, (user1_id, user2_id))
-    user1_wrote = cursor.fetchone()[0] > 0
-
-    # Проверяем, писал ли user2 пользователю user1
-    cursor.execute("""
-        SELECT COUNT(*) FROM messages
-        WHERE from_user_id = ? AND to_user_id = ? AND is_deleted = 0
-    """, (user2_id, user1_id))
-    user2_wrote = cursor.fetchone()[0] > 0
-
-    conn.close()
-    return user1_wrote and user2_wrote
-
-
-def has_notified_mutual(user1_id: int, user2_id: int) -> bool:
-    """Проверяет, отправляли ли уже уведомление о взаимном мэтче."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    # Проверяем в обе стороны
-    cursor.execute("""
-        SELECT COUNT(*) FROM notifications
-        WHERE notification_type = 'mutual_match'
-          AND data LIKE ?
-          AND is_sent = 1
-    """, (f'%{user2_id}%',))
-    count1 = cursor.fetchone()[0]
-
-    conn.close()
-    return count1 > 0
 
 # ===== АНТИФРОД. УРОВЕНЬ 1 =====
 
 def get_user_age_days(user_id: int) -> int:
-    """
-    Возвращает возраст аккаунта в днях.
-    Если аккаунт не найден — возвращает 0.
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -1695,9 +1470,6 @@ def get_user_age_days(user_id: int) -> int:
 
 
 def is_profile_filled(user_id: int) -> bool:
-    """
-    Проверяет, заполнен ли профиль: игра, ранг, роль.
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -1714,15 +1486,9 @@ def is_profile_filled(user_id: int) -> bool:
 
 
 def has_interaction(user1_id: int, user2_id: int) -> bool:
-    """
-    Проверяет, было ли взаимодействие между двумя пользователями:
-    - обмен сообщениями (в любую сторону)
-    - взаимный мэтч (если есть таблица matches)
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-    # Проверка 1: сообщения (в любую сторону)
     cursor.execute("""
         SELECT COUNT(*) FROM messages
         WHERE ((from_user_id = ? AND to_user_id = ?)
@@ -1734,7 +1500,6 @@ def has_interaction(user1_id: int, user2_id: int) -> bool:
         conn.close()
         return True
 
-    # Проверка 2: взаимный мэтч (если есть)
     try:
         cursor.execute("""
             SELECT COUNT(*) FROM matches
@@ -1753,9 +1518,6 @@ def has_interaction(user1_id: int, user2_id: int) -> bool:
 
 
 def add_match(user1_id: int, user2_id: int) -> bool:
-    """
-    Добавляет взаимный мэтч.
-    """
     if user1_id == user2_id:
         return False
 
@@ -1777,13 +1539,6 @@ def add_match(user1_id: int, user2_id: int) -> bool:
 
 
 def anti_fraud_check_v1(from_user_id: int, to_user_id: int) -> dict:
-    """
-    Уровень 1 антифрода. Возвращает dict:
-    {
-        "allowed": bool,
-        "reason": str,
-    }
-    """
     age = get_user_age_days(from_user_id)
     if age < 3:
         return {
@@ -1804,3 +1559,134 @@ def anti_fraud_check_v1(from_user_id: int, to_user_id: int) -> dict:
         }
 
     return {"allowed": True, "reason": ""}
+
+
+# ===== УВЕДОМЛЕНИЯ =====
+
+def init_notifications():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            notification_type TEXT NOT NULL,
+            data TEXT DEFAULT '',
+            is_sent INTEGER DEFAULT 0,
+            send_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def schedule_notification(user_id: int, notification_type: str, data: str = "", delay_seconds: int = 0) -> int:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    if delay_seconds > 0:
+        cursor.execute("""
+            INSERT INTO notifications (user_id, notification_type, data, send_at)
+            VALUES (?, ?, ?, datetime('now', ?))
+        """, (user_id, notification_type, data, f'+{delay_seconds} seconds'))
+    else:
+        cursor.execute("""
+            INSERT INTO notifications (user_id, notification_type, data, send_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        """, (user_id, notification_type, data))
+
+    notif_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return notif_id
+
+
+def get_pending_notifications(limit: int = 100):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, user_id, notification_type, data
+        FROM notifications
+        WHERE is_sent = 0
+          AND send_at <= CURRENT_TIMESTAMP
+        ORDER BY send_at ASC
+        LIMIT ?
+    """, (limit,))
+    notifs = cursor.fetchall()
+    conn.close()
+    return notifs
+
+
+def mark_notification_sent(notification_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE notifications SET is_sent = 1 WHERE id = ?
+    """, (notification_id,))
+    conn.commit()
+    conn.close()
+
+
+def has_pending_notification(user_id: int, notification_type: str) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) FROM notifications
+        WHERE user_id = ?
+          AND notification_type = ?
+          AND is_sent = 0
+    """, (user_id, notification_type))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count > 0
+
+
+def cleanup_old_notifications(days: int = 7):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        DELETE FROM notifications
+        WHERE is_sent = 1
+          AND created_at < datetime('now', ?)
+    """, (f'-{days} days',))
+    conn.commit()
+    conn.close()
+
+
+def check_mutual_match(user1_id: int, user2_id: int) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*) FROM messages
+        WHERE from_user_id = ? AND to_user_id = ? AND is_deleted = 0
+    """, (user1_id, user2_id))
+    user1_wrote = cursor.fetchone()[0] > 0
+
+    cursor.execute("""
+        SELECT COUNT(*) FROM messages
+        WHERE from_user_id = ? AND to_user_id = ? AND is_deleted = 0
+    """, (user2_id, user1_id))
+    user2_wrote = cursor.fetchone()[0] > 0
+
+    conn.close()
+    return user1_wrote and user2_wrote
+
+
+def has_notified_mutual(user1_id: int, user2_id: int) -> bool:
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*) FROM notifications
+        WHERE notification_type = 'mutual_match'
+          AND data LIKE ?
+          AND is_sent = 1
+    """, (f'%{user2_id}%',))
+    count1 = cursor.fetchone()[0]
+
+    conn.close()
+    return count1 > 0
