@@ -130,6 +130,7 @@ Telegram-бот для поиска напарников в играх. Помо
 ```bash
 git clone https://github.com/DiadorPrime/duofinder-bot.git
 cd duofinder-bot
+```
 
 ## 👨‍💻 О разработчике
 
