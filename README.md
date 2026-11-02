@@ -130,3 +130,24 @@ Telegram-бот для поиска напарников в играх. Помо
 ```bash
 git clone https://github.com/DiadorPrime/duofinder-bot.git
 cd duofinder-bot
+
+## 👨‍💻 О разработчике
+
+Привет! Я создатель **DuoFinder** — бота для поиска напарников в играх.
+
+Моя цель — сделать так, чтобы каждый геймер нашёл своего напарника: не просто «тело для катки», а человека, с которым комфортно и результативно играть.
+
+### 🔗 Мои соцсети
+
+- 🎮 **Twitch** — [raise_nik](https://www.twitch.tv/raise_nik)
+- ▶️ **YouTube** — [@raise1nik](https://youtube.com/@raise1nik?si=C02DLIANh_GX0DfP)
+- 📸 **Instagram** — [raise1nik](https://www.instagram.com/raise1nik?exln=ZHkwNml6ejR5ajF2&utm_source=qr)
+- 🎵 **TikTok** — [@raise2nik](https://www.tiktok.com/@raise2nik)
+
+### 💖 Поддержать проект
+
+Если тебе нравится бот — можешь поддержать разработку. Любая сумма помогает делать проект лучше.
+
+- 💰 **DonationAlerts** — [donationalerts.com/r/raise_nik](https://www.donationalerts.com/r/raise_nik)
+
+Спасибо, что ты со мной! 🙏

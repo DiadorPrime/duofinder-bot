@@ -556,27 +556,27 @@ def developer_menu():
             [
                 InlineKeyboardButton(
                     text="🎮 Twitch",
-                    url="https://twitch.tv/ТВОЙ_КАНАЛ"
+                    url="https://www.twitch.tv/raise_nik"
                 ),
                 InlineKeyboardButton(
                     text="▶️ YouTube",
-                    url="https://youtube.com/@ТВОЙ_КАНАЛ"
+                    url="https://youtube.com/@raise1nik?si=C02DLIANh_GX0DfP"
                 ),
             ],
             [
                 InlineKeyboardButton(
                     text="📸 Instagram",
-                    url="https://instagram.com/ТВОЙ_АККАУНТ"
+                    url="https://www.instagram.com/raise1nik?exln=ZHkwNml6ejR5ajF2&utm_source=qr"
                 ),
                 InlineKeyboardButton(
                     text="🎵 TikTok",
-                    url="https://tiktok.com/@ТВОЙ_АККАУНТ"
+                    url="https://www.tiktok.com/@raise2nik"
                 ),
             ],
             [
                 InlineKeyboardButton(
                     text="💖 Поддержать проект",
-                    url="https://www.donationalerts.com/r/ТВОЙ_НИК"
+                    url="https://www.donationalerts.com/r/raise_nik"
                 ),
             ],
         ]
