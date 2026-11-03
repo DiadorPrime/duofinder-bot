@@ -79,6 +79,14 @@ def migrate_db():
             print(f"✅ Добавлено поле {field}")
         except sqlite3.OperationalError:
             pass
+    
+    # Миграция weight для ratings_v2
+    try:
+        cursor.execute("ALTER TABLE ratings_v2 ADD COLUMN weight REAL DEFAULT 1.0")
+        conn.commit()
+        print("✅ Добавлено поле weight в ratings_v2")
+    except sqlite3.OperationalError:
+        pass
 
     conn.close()
 
@@ -182,6 +190,7 @@ def init_ratings_extended():
             stars INTEGER NOT NULL,
             tags TEXT DEFAULT '',
             comment TEXT DEFAULT '',
+            weight REAL DEFAULT 1.0,
             rating_date TEXT DEFAULT (date('now')),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(from_user_id, to_user_id, rating_date)
@@ -1690,3 +1699,201 @@ def has_notified_mutual(user1_id: int, user2_id: int) -> bool:
 
     conn.close()
     return count1 > 0
+
+# ===== АНТИФРОД. УРОВЕНЬ 2 =====
+
+def count_ratings_last_hour(user_id: int) -> int:
+    """Считает оценки, поставленные пользователем за последний час."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT COUNT(*) FROM ratings_v2
+        WHERE from_user_id = ?
+          AND created_at >= datetime('now', '-1 hour')
+    """, (user_id,))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
+def get_user_rating_pattern(user_id: int) -> dict:
+    """
+    Анализ паттерна оценок пользователя.
+    Возвращает:
+    {
+        "total": int,
+        "negative": int,  # 1-2 звезды
+        "positive": int,  # 4-5 звёзд
+        "neutral": int,   # 3 звезды
+        "negative_ratio": float,  # доля негативных
+        "all_negative": bool,     # все негативные (10+)
+    }
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN stars <= 2 THEN 1 ELSE 0 END) as negative,
+            SUM(CASE WHEN stars >= 4 THEN 1 ELSE 0 END) as positive,
+            SUM(CASE WHEN stars = 3 THEN 1 ELSE 0 END) as neutral
+        FROM ratings_v2
+        WHERE from_user_id = ?
+    """, (user_id,))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    total = row[0] or 0
+    negative = row[1] or 0
+    positive = row[2] or 0
+    neutral = row[3] or 0
+
+    return {
+        "total": total,
+        "negative": negative,
+        "positive": positive,
+        "neutral": neutral,
+        "negative_ratio": round(negative / total, 2) if total > 0 else 0,
+        "all_negative": total >= 10 and negative == total,
+    }
+
+
+def get_user_last_seen_days(user_id: int) -> int:
+    """Возвращает, сколько дней назад пользователь был онлайн."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT CAST(
+            julianday('now') - julianday(last_seen)
+        AS INTEGER)
+        FROM users WHERE user_id = ?
+    """, (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row and row[0] is not None else 0
+
+
+def anti_fraud_check_v2(from_user_id: int) -> dict:
+    """
+    Уровень 2 антифрода. Возвращает:
+    {
+        "weight": float,       # итоговый вес оценки (1.0, 0.5, 0.3, 0.15...)
+        "flags": list[str],    # список сработавших проверок
+    }
+    """
+    weight = 1.0
+    flags = []
+
+    # Проверка 1: резкий онлайн
+    last_seen_days = get_user_last_seen_days(from_user_id)
+    if last_seen_days > 7:
+        weight *= 0.5
+        flags.append(f"Резкий онлайн (был {last_seen_days} дн. назад)")
+
+    # Проверка 2: серия оценок за час
+    ratings_last_hour = count_ratings_last_hour(from_user_id)
+    if ratings_last_hour >= 10:
+        weight *= 0.3
+        flags.append(f"Серия оценок ({ratings_last_hour} за час)")
+
+    # Проверка 3: все оценки негативные
+    pattern = get_user_rating_pattern(from_user_id)
+    if pattern["all_negative"]:
+        weight *= 0.3
+        flags.append(f"Все оценки негативные ({pattern['negative']} из {pattern['total']})")
+
+    return {
+        "weight": round(weight, 2),
+        "flags": flags,
+    }
+
+
+def add_rating_v2_weighted(
+    from_user_id: int,
+    to_user_id: int,
+    stars: int,
+    tags: str = "",
+    comment: str = "",
+    weight: float = 1.0,
+) -> bool:
+    """Добавляет оценку с весом. Возвращает True, если удалось."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO ratings_v2 (from_user_id, to_user_id, stars, tags, comment, weight)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (from_user_id, to_user_id, stars, tags, comment, weight))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
+
+
+def recalculate_rating_weighted(to_user_id: int):
+    """
+    Пересчитывает рейтинг с учётом весов оценок.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT stars, tags, weight FROM ratings_v2 WHERE to_user_id = ?
+    """, (to_user_id,))
+    rows = cursor.fetchall()
+
+    if not rows:
+        conn.close()
+        return 5.0
+
+    total_weighted = 0.0
+    total_weight = 0.0
+
+    for stars, tags_str, weight in rows:
+        base = stars * 2.0
+
+        bonus = 0.0
+        if tags_str:
+            tags = [t.strip() for t in tags_str.split(",")]
+
+            if "🧠 Ментор" in tags:
+                bonus += 1.0
+            if "🤝 Командный" in tags:
+                bonus += 0.5
+            if "😄 Веселый" in tags:
+                bonus += 0.5
+            if "🎯 Хороший саппорт" in tags:
+                bonus += 0.5
+
+            if "😡 Токсик" in tags:
+                bonus -= 2.0
+            if "🚪 Ливер" in tags:
+                bonus -= 3.0
+            if "🤐 Молчал" in tags:
+                bonus -= 0.5
+
+        score = max(0.0, min(10.0, base + bonus))
+
+        # Учитываем с весом
+        w = weight if weight else 1.0
+        total_weighted += score * w
+        total_weight += w
+
+    if total_weight == 0:
+        conn.close()
+        return 5.0
+
+    new_rating = round(total_weighted / total_weight, 2)
+
+    cursor.execute("""
+        UPDATE users SET rating = ? WHERE user_id = ?
+    """, (new_rating, to_user_id))
+
+    conn.commit()
+    conn.close()
+
+    return new_rating

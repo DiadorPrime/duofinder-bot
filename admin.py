@@ -923,8 +923,10 @@ async def cmd_admin_help(message: Message):
         "/add_role &lt;игра&gt; | &lt;роль&gt; — добавить роль\n"
         "/del_role &lt;игра&gt; | &lt;роль&gt; — удалить\n\n"
         "<b>Антифрод:</b>\n"
-        "/antifraud — справка\n"
-        "/check_antifraud &lt;id&gt; — проверить пользователя\n\n"
+        "/antifraud — Уровень 1\n"
+        "/antifraud_v2 — Уровень 2\n"
+        "/check_antifraud &lt;id&gt; — проверить Уровень 1\n"
+        "/check_antifraud_v2 &lt;id&gt; — проверить Уровень 2\n\n"
         "<b>Уведомления:</b>\n"
         "/notifications — статистика уведомлений\n\n"
         "<b>Жалобы:</b>\n"
@@ -943,7 +945,9 @@ async def cmd_admin_help(message: Message):
         "/reply — ответить последнему\n"
         "/inbox — входящие\n"
         "/chat &lt;id&gt; — диалог\n"
-        "/unread — непрочитанные\n",
+        "/unread — непрочитанные\n\n"
+        "<b>О проекте:</b>\n"
+        "/developer — о разработчике",
         parse_mode="HTML",
         reply_markup=back_to_menu()
     )
@@ -997,3 +1001,84 @@ async def callback_menu(callback: CallbackQuery):
 @router.callback_query(F.data == "admin:noop")
 async def callback_noop(callback: CallbackQuery):
     await callback.answer()
+
+# ===== АНТИФРОД УРОВЕНЬ 2: СТАТИСТИКА =====
+
+@router.message(Command("antifraud_v2"))
+async def cmd_antifraud_v2(message: Message):
+    """Справка по антифроду Уровень 2."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    await message.answer(
+        "🛡 <b>Антифрод. Уровень 2</b>\n\n"
+        "<b>Проверки веса оценки:</b>\n"
+        "1. Резкий онлайн — был > 7 дней назад → вес 0.5\n"
+        "2. Серия оценок — 10+ за час → вес 0.3\n"
+        "3. Все негативные — 10+ оценок, все 1–2⭐ → вес 0.3\n\n"
+        "<b>Если несколько флагов</b> — вес перемножается.\n"
+        "Например: 0.5 × 0.3 = 0.15\n\n"
+        "<b>Что это значит:</b>\n"
+        "• Оценка сохраняется\n"
+        "• Но влияет на рейтинг слабее\n"
+        "• Пользователь видит причину снижения\n\n"
+        "<b>Команды:</b>\n"
+        "/check_antifraud_v2 &lt;user_id&gt; — проверить пользователя",
+        parse_mode="HTML",
+        reply_markup=back_to_menu()
+    )
+
+
+@router.message(Command("check_antifraud_v2"))
+async def cmd_check_antifraud_v2(message: Message):
+    """Проверяет вес оценки для пользователя."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer(
+            "Использование: <code>/check_antifraud_v2 &lt;user_id&gt;</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        target_id = int(parts[1])
+    except ValueError:
+        await message.answer("❌ ID должен быть числом.")
+        return
+
+    from database import (
+        get_user_last_seen_days, count_ratings_last_hour,
+        get_user_rating_pattern, anti_fraud_check_v2
+    )
+
+    last_seen_days = get_user_last_seen_days(target_id)
+    ratings_last_hour = count_ratings_last_hour(target_id)
+    pattern = get_user_rating_pattern(target_id)
+    check = anti_fraud_check_v2(target_id)
+
+    text = f"🛡 <b>Антифрод Уровень 2</b>\n\n"
+    text += f"ID: <code>{target_id}</code>\n\n"
+
+    text += f"<b>Проверки:</b>\n"
+    text += f"1. Был онлайн: <b>{last_seen_days} дн. назад</b> "
+    text += "❌ (резкий онлайн)\n" if last_seen_days > 7 else "✅\n"
+
+    text += f"2. Оценок за час: <b>{ratings_last_hour}</b> "
+    text += "❌ (серия)\n" if ratings_last_hour >= 10 else "✅\n"
+
+    text += f"3. Всего оценок: <b>{pattern['total']}</b>, "
+    text += f"негативных: <b>{pattern['negative']}</b> "
+    text += "❌ (все негативные)\n" if pattern["all_negative"] else "✅\n"
+
+    text += f"\n<b>Итоговый вес оценки: {check['weight']}</b>\n"
+
+    if check["flags"]:
+        text += "\n<b>Сработавшие флаги:</b>\n"
+        for flag in check["flags"]:
+            text += f"• {flag}\n"
+    await message.answer(text, parse_mode="HTML", reply_markup=back_to_menu())

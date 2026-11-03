@@ -19,7 +19,8 @@ from database import (
     get_game_ranks, get_game_roles,
     get_user_age_days, is_profile_filled, has_interaction,
     add_match, anti_fraud_check_v1,
-    schedule_notification, check_mutual_match, has_notified_mutual
+    schedule_notification, check_mutual_match, has_notified_mutual,
+    anti_fraud_check_v2,add_rating_v2_weighted,recalculate_rating_weighted
 )
 from keyboards import (
     main_menu, games_menu, ranks_menu, roles_menu, time_menu, rating_menu,
@@ -1582,11 +1583,19 @@ async def rating_save(callback: CallbackQuery, state: FSMContext):
     tags = data.get("tags", [])
     tags_str = ",".join(tags)
 
-    success = add_rating_v2(
+    # ===== АНТИФРОД. УРОВЕНЬ 1 (уже проверен в cmd_rate) =====
+    # ===== АНТИФРОД. УРОВЕНЬ 2: расчёт веса =====
+    fraud_check = anti_fraud_check_v2(callback.from_user.id)
+    weight = fraud_check["weight"]
+    flags = fraud_check["flags"]
+    # ===== /АНТИФРОД =====
+
+    success = add_rating_v2_weighted(
         from_user_id=callback.from_user.id,
         to_user_id=to_user_id,
         stars=stars,
         tags=tags_str,
+        weight=weight,
     )
 
     if not success:
@@ -1594,7 +1603,7 @@ async def rating_save(callback: CallbackQuery, state: FSMContext):
         await state.clear()
         return
 
-    new_rating = recalculate_rating(to_user_id)
+    new_rating = recalculate_rating_weighted(to_user_id)
 
     rater_name = callback.from_user.username or callback.from_user.first_name
     schedule_notification(
@@ -1604,7 +1613,11 @@ async def rating_save(callback: CallbackQuery, state: FSMContext):
         delay_seconds=3600
     )
 
-    log_event(callback.from_user.id, "rating_given", f"to:{to_user_id}|stars:{stars}|tags:{tags_str}")
+    log_event(
+        callback.from_user.id,
+        "rating_given",
+        f"to:{to_user_id}|stars:{stars}|tags:{tags_str}|weight:{weight}"
+    )
 
     try:
         tags_display = ", ".join(tags) if tags else "без тегов"
@@ -1628,12 +1641,21 @@ async def rating_save(callback: CallbackQuery, state: FSMContext):
     target = get_profile(to_user_id)
     target_name = target[1] if target else str(to_user_id)
 
+    # Информация о весе — только если вес снижен
+    weight_info = ""
+    if weight < 1.0:
+        weight_info = (
+            f"\n\n⚠️ <b>Вес оценки снижен: {weight}</b>\n"
+            f"<i>Причина: {', '.join(flags)}</i>"
+        )
+
     await callback.message.edit_text(
         f"✅ <b>Спасибо за оценку!</b>\n\n"
         f"Ты оценил @{target_name}:\n"
         f"⭐ {stars}/5\n"
         f"🏷 {', '.join(tags) if tags else 'без тегов'}\n\n"
-        f"Новый рейтинг: <b>{new_rating}/10</b>",
+        f"Новый рейтинг: <b>{new_rating}/10</b>"
+        f"{weight_info}",
         parse_mode="HTML",
         reply_markup=rating_done_menu()
     )
