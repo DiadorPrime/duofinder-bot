@@ -1899,19 +1899,20 @@ async def cmd_my_reports(message: Message):
 
 @router.message(Command("mentor"))
 async def cmd_mentor(message: Message):
-    """Главное меню ментора."""
     update_last_seen(message.from_user.id)
 
     mentor_status = "🎓 Ты ментор" if is_mentor(message.from_user.id) else "❌ Ты не ментор"
 
+    user = get_profile(message.from_user.id)
+    rating = user[10] if user and len(user) > 10 else 5.0
+
     await message.answer(
         f"🎓 <b>Режим Ментора</b>\n\n"
-        f"Статус: {mentor_status}\n\n"
-        f"<b>Что это?</b>\n"
-        f"Опытные игроки помогают новичкам:\n"
-        f"• Объясняют механику\n"
-        f"• Играют вместе\n"
-        f"• Учат ролям\n\n"
+        f"Статус: {mentor_status}\n"
+        f"⭐ Твой рейтинг: {rating}/10\n\n"
+        f"<b>Требования для ментора:</b>\n"
+        f"• Рейтинг 9.8+\n"
+        f"• Заполненный профиль\n\n"
         f"Выбери действие:",
         parse_mode="HTML",
         reply_markup=mentor_menu()
@@ -1943,11 +1944,17 @@ async def callback_mentor_become(callback: CallbackQuery, state: FSMContext):
         await callback.answer("⚠️ Сначала заполни профиль: /profile", show_alert=True)
         return
 
-    # Проверка: возраст аккаунта 3+ дня
-    from database import get_user_age_days
-    if get_user_age_days(callback.from_user.id) < 3:
-        await callback.answer("⚠️ Аккаунт слишком новый. Нужно 3+ дня.", show_alert=True)
+    # ===== ПРОВЕРКА РЕЙТИНГА 9.8+ =====
+    rating = user[10] if user and len(user) > 10 else 5.0
+
+    if rating < 9.8:
+        await callback.answer(
+            f"⚠️ Стать ментором можно только с рейтингом 9.8+\n"
+            f"Твой рейтинг: {rating}/10",
+            show_alert=True
+        )
         return
+    # ===== /ПРОВЕРКА =====
 
     await state.set_state(MentorForm.games)
 
