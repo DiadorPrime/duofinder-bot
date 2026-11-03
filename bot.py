@@ -8,7 +8,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from database import (
     init_db, init_analytics, migrate_db, init_games, init_messages,
-    init_ratings_extended, init_reports, init_game_data, init_notifications
+    init_ratings_extended, init_reports, init_game_data, init_notifications,
+    init_mentors,
 )
 from notifications import notification_worker, cleanup_worker
 
