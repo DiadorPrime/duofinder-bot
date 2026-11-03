@@ -1962,7 +1962,7 @@ async def callback_mentor_become(callback: CallbackQuery, state: FSMContext):
         "🎓 <b>Стать ментором</b>\n\n"
         "Шаг 1/4: В каких играх ты можешь быть ментором?\n\n"
         "Напиши через запятую, например:\n"
-        "<code>Dota 2, CS2</code>",
+        "Dota 2, CS2",
         parse_mode="HTML"
     )
     await callback.answer()
@@ -1977,7 +1977,7 @@ async def process_mentor_games(message: Message, state: FSMContext):
         "🎓 <b>Шаг 2/4: Роли</b>\n\n"
         "Какие роли ты можешь объяснить?\n\n"
         "Напиши через запятую, например:\n"
-        "<code>Керри, Саппорт</code>\n\n"
+        "Керри, Саппорт\n\n"
         "Или «все» — если готов объяснить всё."
     )
 
@@ -1990,7 +1990,7 @@ async def process_mentor_roles(message: Message, state: FSMContext):
     await message.answer(
         "🎓 <b>Шаг 3/4: Время</b>\n\n"
         "Когда ты обычно можешь помочь?\n\n"
-        "Например: <code>Вечер, выходные</code>"
+        "Например: Вечер, выходные"
     )
 
 
@@ -2005,7 +2005,7 @@ async def process_mentor_time(message: Message, state: FSMContext):
         "• Опыт\n"
         "• Что можешь объяснить\n"
         "• Как проходят сессии\n\n"
-        "Например: <code>Играю 5 лет, объясню механику фарма и ролей</code>"
+        "Например: Играю 5 лет, объясню механику фарма и ролей"
     )
 
 
