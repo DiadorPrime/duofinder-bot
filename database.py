@@ -1902,3 +1902,210 @@ def recalculate_rating_weighted(to_user_id: int):
     conn.close()
 
     return new_rating
+
+# ===== МЕНТОРЫ =====
+
+def init_mentors():
+    """Создаёт таблицу менторов."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS mentors (
+            user_id INTEGER PRIMARY KEY,
+            games TEXT NOT NULL,
+            roles TEXT DEFAULT '',
+            time TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            is_active INTEGER DEFAULT 1,
+            rating REAL DEFAULT 5.0,
+            total_sessions INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS mentor_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mentor_id INTEGER NOT NULL,
+            from_user_id INTEGER NOT NULL,
+            stars INTEGER NOT NULL,
+            comment TEXT DEFAULT '',
+            review_date TEXT DEFAULT (date('now')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(mentor_id, from_user_id, review_date)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def add_mentor(user_id: int, games: str, roles: str = "", time: str = "", description: str = "") -> bool:
+    """Добавляет или обновляет ментора."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT OR REPLACE INTO mentors (user_id, games, roles, time, description)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_id, games, roles, time, description))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Ошибка add_mentor: {e}")
+        conn.close()
+        return False
+
+
+def get_mentor(user_id: int):
+    """Возвращает ментора по ID."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM mentors WHERE user_id = ?", (user_id,))
+    mentor = cursor.fetchone()
+    conn.close()
+    return mentor
+
+
+def is_mentor(user_id: int) -> bool:
+    """Проверяет, является ли пользователь ментором."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM mentors WHERE user_id = ? AND is_active = 1", (user_id,))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count > 0
+
+
+def remove_mentor(user_id: int) -> bool:
+    """Удаляет ментора."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM mentors WHERE user_id = ?", (user_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def find_mentors(game: str = None, role: str = None, time: str = None, limit: int = 5):
+    """
+    Ищет менторов по фильтрам.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    query = """
+        SELECT m.user_id, u.username, m.games, m.roles, m.time, m.description, m.rating, m.total_sessions
+        FROM mentors m
+        LEFT JOIN users u ON m.user_id = u.user_id
+        WHERE m.is_active = 1
+    """
+    params = []
+
+    if game:
+        query += " AND m.games LIKE ?"
+        params.append(f"%{game}%")
+
+    if role:
+        query += " AND m.roles LIKE ?"
+        params.append(f"%{role}%")
+
+    if time:
+        query += " AND m.time LIKE ?"
+        params.append(f"%{time}%")
+
+    query += " ORDER BY m.rating DESC, m.total_sessions DESC LIMIT ?"
+    params.append(limit)
+
+    cursor.execute(query, params)
+    mentors = cursor.fetchall()
+    conn.close()
+    return mentors
+
+
+def add_mentor_review(mentor_id: int, from_user_id: int, stars: int, comment: str = "") -> bool:
+    """Добавляет отзыв ментору."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO mentor_reviews (mentor_id, from_user_id, stars, comment)
+            VALUES (?, ?, ?, ?)
+        """, (mentor_id, from_user_id, stars, comment))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False
+
+
+def get_mentor_rating(mentor_id: int) -> float:
+    """Возвращает средний рейтинг ментора."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT AVG(stars) FROM mentor_reviews WHERE mentor_id = ?
+    """, (mentor_id,))
+    avg = cursor.fetchone()[0]
+    conn.close()
+    return round(avg, 2) if avg else 5.0
+
+
+def get_mentor_reviews(mentor_id: int, limit: int = 10):
+    """Возвращает отзывы ментору."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT r.stars, r.comment, r.created_at, u.username
+        FROM mentor_reviews r
+        LEFT JOIN users u ON r.from_user_id = u.user_id
+        WHERE r.mentor_id = ?
+        ORDER BY r.created_at DESC
+        LIMIT ?
+    """, (mentor_id, limit))
+    reviews = cursor.fetchall()
+    conn.close()
+    return reviews
+
+
+def increment_mentor_sessions(mentor_id: int):
+    """Увеличивает счётчик сессий ментора."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE mentors SET total_sessions = total_sessions + 1 WHERE user_id = ?
+    """, (mentor_id,))
+    conn.commit()
+    conn.close()
+
+
+def recalculate_mentor_rating(mentor_id: int):
+    """Пересчитывает рейтинг ментора."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT stars FROM mentor_reviews WHERE mentor_id = ?
+    """, (mentor_id,))
+    rows = cursor.fetchall()
+
+    if not rows:
+        conn.close()
+        return 5.0
+
+    total = sum(row[0] for row in rows)
+    count = len(rows)
+    new_rating = round(total / count, 2)
+
+    cursor.execute("""
+        UPDATE mentors SET rating = ? WHERE user_id = ?
+    """, (new_rating, mentor_id))
+
+    conn.commit()
+    conn.close()
+
+    return new_rating

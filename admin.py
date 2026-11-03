@@ -947,7 +947,10 @@ async def cmd_admin_help(message: Message):
         "/chat &lt;id&gt; — диалог\n"
         "/unread — непрочитанные\n\n"
         "<b>О проекте:</b>\n"
-        "/developer — о разработчике",
+        "/developer — о разработчике"
+        "<b>Менторы:</b>\n"
+        "/mentors — список менторов\n"
+        "/del_mentor &lt;id&gt; — удалить ментора\n\n",
         parse_mode="HTML",
         reply_markup=back_to_menu()
     )
@@ -1082,3 +1085,58 @@ async def cmd_check_antifraud_v2(message: Message):
         for flag in check["flags"]:
             text += f"• {flag}\n"
     await message.answer(text, parse_mode="HTML", reply_markup=back_to_menu())
+
+# ===== МЕНТОРЫ: АДМИН =====
+
+@router.message(Command("mentors"))
+async def cmd_mentors(message: Message):
+    """Список всех менторов."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    from database import find_mentors
+
+    mentors = find_mentors(limit=20)
+
+    if not mentors:
+        await message.answer("📭 Менторов пока нет.")
+        return
+
+    text = f"🎓 <b>Менторы ({len(mentors)})</b>\n\n"
+
+    for m in mentors:
+        uid, username, games, roles, time, description, rating, sessions = m
+        display_name = f"@{username}" if username else f"ID: {uid}"
+        text += f"👤 {display_name}\n"
+        text += f"   🎮 {games}\n"
+        text += f"   ⭐ {rating}/5 | 📊 {sessions} сессий\n"
+        text += f"   ID: <code>{uid}</code>\n\n"
+
+    await message.answer(text, parse_mode="HTML", reply_markup=back_to_menu())
+
+
+@router.message(Command("del_mentor"))
+async def cmd_del_mentor(message: Message):
+    """Удаляет ментора."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("Использование: <code>/del_mentor &lt;id&gt;</code>", parse_mode="HTML")
+        return
+
+    try:
+        target_id = int(parts[1])
+    except ValueError:
+        await message.answer("❌ ID должен быть числом.")
+        return
+
+    from database import remove_mentor
+
+    if remove_mentor(target_id):
+        await message.answer(f"✅ Ментор <code>{target_id}</code> удалён.", parse_mode="HTML")
+    else:
+        await message.answer(f"❌ Ментор <code>{target_id}</code> не найден.", parse_mode="HTML")

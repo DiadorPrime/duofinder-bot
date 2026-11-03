@@ -30,6 +30,7 @@ async def main():
     init_reports()
     init_game_data()
     init_notifications()
+    init_mentors()  # ← добавляем
 
     print("🚀 Запуск бота на Amvera...")
     print(f"📁 База данных: {os.path.abspath('duofinder.db')}")

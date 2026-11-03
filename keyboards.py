@@ -690,3 +690,58 @@ def filter_experience_menu():
         ]
     )
     return kb
+
+# ===== МЕНТОР =====
+
+def mentor_menu():
+    """Меню ментора."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🎓 Стать ментором", callback_data="mentor:become")],
+            [InlineKeyboardButton(text="🔍 Найти ментора", callback_data="mentor:find")],
+            [InlineKeyboardButton(text="👤 Мой профиль ментора", callback_data="mentor:profile")],
+            [InlineKeyboardButton(text="❌ Перестать быть ментором", callback_data="mentor:leave")],
+            [InlineKeyboardButton(text="🏠 В меню", callback_data="mentor:menu")],
+        ]
+    )
+
+
+def mentor_find_menu():
+    """Меню поиска ментора."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🎮 По игре", callback_data="mentor:filter:game")],
+            [InlineKeyboardButton(text="🎯 По роли", callback_data="mentor:filter:role")],
+            [InlineKeyboardButton(text="🕐 По времени", callback_data="mentor:filter:time")],
+            [InlineKeyboardButton(text="🔍 Искать", callback_data="mentor:search")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="mentor:menu")],
+        ]
+    )
+
+
+def mentor_review_menu(mentor_id: int):
+    """Меню оценки ментора."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⭐ 1", callback_data=f"mentor:review:1:{mentor_id}"),
+                InlineKeyboardButton(text="⭐⭐ 2", callback_data=f"mentor:review:2:{mentor_id}"),
+                InlineKeyboardButton(text="⭐⭐⭐ 3", callback_data=f"mentor:review:3:{mentor_id}"),
+                InlineKeyboardButton(text="⭐⭐⭐⭐ 4", callback_data=f"mentor:review:4:{mentor_id}"),
+                InlineKeyboardButton(text="⭐⭐⭐⭐⭐ 5", callback_data=f"mentor:review:5:{mentor_id}"),
+            ],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"mentor:view:{mentor_id}")],
+        ]
+    )
+
+
+def mentor_actions_menu(mentor_id: int):
+    """Действия с ментором."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✍️ Написать", callback_data=f"mentor:msg:{mentor_id}")],
+            [InlineKeyboardButton(text="⭐ Оценить", callback_data=f"mentor:rate:{mentor_id}")],
+            [InlineKeyboardButton(text="📋 Отзывы", callback_data=f"mentor:reviews:{mentor_id}")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="mentor:search")],
+        ]
+    )

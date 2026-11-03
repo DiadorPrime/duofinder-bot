@@ -20,7 +20,11 @@ from database import (
     get_user_age_days, is_profile_filled, has_interaction,
     add_match, anti_fraud_check_v1,
     schedule_notification, check_mutual_match, has_notified_mutual,
-    anti_fraud_check_v2,add_rating_v2_weighted,recalculate_rating_weighted
+    anti_fraud_check_v2, add_rating_v2_weighted, recalculate_rating_weighted,
+    add_mentor, get_mentor, is_mentor, remove_mentor,
+    find_mentors, add_mentor_review, get_mentor_rating,
+    get_mentor_reviews, increment_mentor_sessions, recalculate_mentor_rating,
+    init_mentors
 )
 from keyboards import (
     main_menu, games_menu, ranks_menu, roles_menu, time_menu, rating_menu,
@@ -32,7 +36,8 @@ from keyboards import (
     unblock_menu, delete_confirm_menu, blocked_list_menu,
     developer_menu,
     style_menu, goal_menu, voice_menu, experience_menu,
-    filter_style_menu, filter_goal_menu, filter_voice_menu, filter_experience_menu
+    filter_style_menu, filter_goal_menu, filter_voice_menu, filter_experience_menu,
+    mentor_menu, mentor_find_menu, mentor_review_menu, mentor_actions_menu
 )
 
 router = Router()
@@ -65,6 +70,12 @@ class FilterForm(StatesGroup):
 class RatingForm(StatesGroup):
     stars = State()
     tags = State()
+
+class MentorForm(StatesGroup):
+    games = State()
+    roles = State()
+    time = State()
+    description = State()
 
 
 # ===== ОСНОВНЫЕ КОМАНДЫ =====
@@ -1883,3 +1894,384 @@ async def cmd_my_reports(message: Message):
         text += "\nПопробуй быть вежливее с напарниками."
 
     await message.answer(text, parse_mode="HTML")
+
+# ===== МЕНТОР =====
+
+@router.message(Command("mentor"))
+async def cmd_mentor(message: Message):
+    """Главное меню ментора."""
+    update_last_seen(message.from_user.id)
+
+    mentor_status = "🎓 Ты ментор" if is_mentor(message.from_user.id) else "❌ Ты не ментор"
+
+    await message.answer(
+        f"🎓 <b>Режим Ментора</b>\n\n"
+        f"Статус: {mentor_status}\n\n"
+        f"<b>Что это?</b>\n"
+        f"Опытные игроки помогают новичкам:\n"
+        f"• Объясняют механику\n"
+        f"• Играют вместе\n"
+        f"• Учат ролям\n\n"
+        f"Выбери действие:",
+        parse_mode="HTML",
+        reply_markup=mentor_menu()
+    )
+
+
+@router.callback_query(F.data == "mentor:menu")
+async def callback_mentor_menu(callback: CallbackQuery):
+    mentor_status = "🎓 Ты ментор" if is_mentor(callback.from_user.id) else "❌ Ты не ментор"
+
+    await callback.message.edit_text(
+        f"🎓 <b>Режим Ментора</b>\n\n"
+        f"Статус: {mentor_status}\n\n"
+        f"Выбери действие:",
+        parse_mode="HTML",
+        reply_markup=mentor_menu()
+    )
+    await callback.answer()
+
+
+# ===== СТАТЬ МЕНТОРОМ =====
+
+@router.callback_query(F.data == "mentor:become")
+async def callback_mentor_become(callback: CallbackQuery, state: FSMContext):
+    if is_mentor(callback.from_user.id):
+        await callback.answer("⚠️ Ты уже ментор", show_alert=True)
+        return
+
+    # Проверка: профиль заполнен
+    user = get_profile(callback.from_user.id)
+    if not user or not user[2]:
+        await callback.answer("⚠️ Сначала заполни профиль: /profile", show_alert=True)
+        return
+
+    # Проверка: возраст аккаунта 3+ дня
+    from database import get_user_age_days
+    if get_user_age_days(callback.from_user.id) < 3:
+        await callback.answer("⚠️ Аккаунт слишком новый. Нужно 3+ дня.", show_alert=True)
+        return
+
+    await state.set_state(MentorForm.games)
+
+    await callback.message.edit_text(
+        "🎓 <b>Стать ментором</b>\n\n"
+        "Шаг 1/4: В каких играх ты можешь быть ментором?\n\n"
+        "Напиши через запятую, например:\n"
+        "<code>Dota 2, CS2</code>",
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.message(MentorForm.games, ~F.text.startswith("/"))
+async def process_mentor_games(message: Message, state: FSMContext):
+    await state.update_data(games=message.text.strip())
+
+    await state.set_state(MentorForm.roles)
+    await message.answer(
+        "🎓 <b>Шаг 2/4: Роли</b>\n\n"
+        "Какие роли ты можешь объяснить?\n\n"
+        "Напиши через запятую, например:\n"
+        "<code>Керри, Саппорт</code>\n\n"
+        "Или «все» — если готов объяснить всё."
+    )
+
+
+@router.message(MentorForm.roles, ~F.text.startswith("/"))
+async def process_mentor_roles(message: Message, state: FSMContext):
+    await state.update_data(roles=message.text.strip())
+
+    await state.set_state(MentorForm.time)
+    await message.answer(
+        "🎓 <b>Шаг 3/4: Время</b>\n\n"
+        "Когда ты обычно можешь помочь?\n\n"
+        "Например: <code>Вечер, выходные</code>"
+    )
+
+
+@router.message(MentorForm.time, ~F.text.startswith("/"))
+async def process_mentor_time(message: Message, state: FSMContext):
+    await state.update_data(time=message.text.strip())
+
+    await state.set_state(MentorForm.description)
+    await message.answer(
+        "🎓 <b>Шаг 4/4: Описание</b>\n\n"
+        "Расскажи о себе кратко:\n"
+        "• Опыт\n"
+        "• Что можешь объяснить\n"
+        "• Как проходят сессии\n\n"
+        "Например: <code>Играю 5 лет, объясню механику фарма и ролей</code>"
+    )
+
+
+@router.message(MentorForm.description, ~F.text.startswith("/"))
+async def process_mentor_description(message: Message, state: FSMContext):
+    data = await state.get_data()
+
+    success = add_mentor(
+        user_id=message.from_user.id,
+        games=data.get("games", ""),
+        roles=data.get("roles", ""),
+        time=data.get("time", ""),
+        description=message.text.strip()
+    )
+
+    await state.clear()
+
+    if success:
+        await message.answer(
+            "✅ <b>Ты стал ментором!</b>\n\n"
+            f"🎮 Игры: {data.get('games', '—')}\n"
+            f"🎯 Роли: {data.get('roles', '—')}\n"
+            f"🕐 Время: {data.get('time', '—')}\n"
+            f"📝 Описание: {message.text.strip()}\n\n"
+            f"Теперь новички могут найти тебя через /mentor.",
+            parse_mode="HTML",
+            reply_markup=main_menu()
+        )
+    else:
+        await message.answer("❌ Ошибка. Попробуй позже.", reply_markup=main_menu())
+
+
+# ===== НАЙТИ МЕНТОРА =====
+
+@router.callback_query(F.data == "mentor:find")
+async def callback_mentor_find(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(
+        mentor_game=None,
+        mentor_role=None,
+        mentor_time=None,
+    )
+
+    await callback.message.edit_text(
+        "🔍 <b>Поиск ментора</b>\n\n"
+        "Выбери фильтры или нажми «Искать»:",
+        parse_mode="HTML",
+        reply_markup=mentor_find_menu()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("mentor:filter:"))
+async def callback_mentor_filter(callback: CallbackQuery, state: FSMContext):
+    filter_type = callback.data.split(":")[2]
+
+    if filter_type == "game":
+        from keyboards import games_inline_menu
+        await callback.message.edit_text(
+            "🎮 <b>Выбери игру</b>",
+            reply_markup=games_inline_menu()
+        )
+    elif filter_type == "role":
+        await callback.message.edit_text(
+            "🎯 <b>Выбери роль</b>",
+            reply_markup=filter_roles_menu()
+        )
+    elif filter_type == "time":
+        await callback.message.edit_text(
+            "🕐 <b>Выбери время</b>",
+            reply_markup=filter_time_menu()
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == "mentor:search")
+async def callback_mentor_search(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+
+    game = data.get("mentor_game")
+    role = data.get("mentor_role")
+    time_val = data.get("mentor_time")
+
+    mentors = find_mentors(game=game, role=role, time=time_val, limit=5)
+
+    if not mentors:
+        await callback.message.edit_text(
+            "😔 <b>Менторов не найдено</b>\n\n"
+            "Попробуй ослабить фильтры.",
+            parse_mode="HTML",
+            reply_markup=mentor_find_menu()
+        )
+        await callback.answer()
+        return
+
+    text = f"🎓 <b>Найдено менторов: {len(mentors)}</b>\n\n"
+
+    for m in mentors:
+        uid, username, games, roles, time, description, rating, sessions = m
+        display_name = f"@{username}" if username else f"ID: {uid}"
+        text += (
+            f"👤 {display_name}\n"
+            f"🎮 {games}\n"
+            f"🎯 {roles or '—'}\n"
+            f"🕐 {time or '—'}\n"
+            f"📝 {description[:100]}{'...' if len(description) > 100 else ''}\n"
+            f"⭐ {rating}/5 | 📊 Сессий: {sessions}\n"
+            f"✍️ /msg_{uid}\n\n"
+        )
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=mentor_find_menu()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("mentor:view:"))
+async def callback_mentor_view(callback: CallbackQuery):
+    mentor_id = int(callback.data.split(":")[2])
+
+    mentor = get_mentor(mentor_id)
+    if not mentor:
+        await callback.answer("❌ Ментор не найден", show_alert=True)
+        return
+
+    uid, games, roles, time, description, is_active, rating, sessions, created_at = mentor
+
+    user = get_profile(mentor_id)
+    username = user[1] if user else None
+    display_name = f"@{username}" if username else f"ID: {uid}"
+
+    text = (
+        f"🎓 <b>Ментор: {display_name}</b>\n\n"
+        f"🎮 Игры: {games}\n"
+        f"🎯 Роли: {roles or '—'}\n"
+        f"🕐 Время: {time or '—'}\n"
+        f"📝 Описание: {description or '—'}\n\n"
+        f"⭐ Рейтинг: {rating}/5\n"
+        f"📊 Сессий: {sessions}\n\n"
+        f"✍️ Написать: /msg_{uid}"
+    )
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=mentor_actions_menu(mentor_id)
+    )
+    await callback.answer()
+
+
+# ===== ОЦЕНКА МЕНТОРА =====
+
+@router.callback_query(F.data.startswith("mentor:rate:"))
+async def callback_mentor_rate(callback: CallbackQuery):
+    mentor_id = int(callback.data.split(":")[2])
+
+    await callback.message.edit_text(
+        f"⭐ <b>Оценка ментора</b>\n\n"
+        f"Сколько звёзд?",
+        parse_mode="HTML",
+        reply_markup=mentor_review_menu(mentor_id)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("mentor:review:"))
+async def callback_mentor_review(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    stars = int(parts[2])
+    mentor_id = int(parts[3])
+
+    success = add_mentor_review(mentor_id, callback.from_user.id, stars)
+
+    if not success:
+        await callback.answer("⚠️ Ты уже оценивал этого ментора сегодня.", show_alert=True)
+        return
+
+    new_rating = recalculate_mentor_rating(mentor_id)
+    increment_mentor_sessions(mentor_id)
+
+    await callback.message.edit_text(
+        f"✅ <b>Спасибо за оценку!</b>\n\n"
+        f"Ты оценил ментора на {stars}/5.\n"
+        f"Новый рейтинг: {new_rating}/5",
+        parse_mode="HTML"
+    )
+    await callback.answer("✅ Оценка сохранена")
+
+
+# ===== ОТЗЫВЫ МЕНТОРА =====
+
+@router.callback_query(F.data.startswith("mentor:reviews:"))
+async def callback_mentor_reviews(callback: CallbackQuery):
+    mentor_id = int(callback.data.split(":")[2])
+
+    reviews = get_mentor_reviews(mentor_id, limit=10)
+
+    if not reviews:
+        await callback.message.edit_text(
+            "📭 <b>Отзывов пока нет</b>",
+            parse_mode="HTML",
+            reply_markup=mentor_actions_menu(mentor_id)
+        )
+        await callback.answer()
+        return
+
+    text = "📋 <b>Отзывы ментора</b>\n\n"
+
+    for stars, comment, created_at, username in reviews:
+        stars_str = "⭐" * stars
+        text += f"{stars_str} от @{username or 'аноним'}\n"
+        if comment:
+            text += f"   {comment}\n"
+        text += f"   <i>{created_at}</i>\n\n"
+
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=mentor_actions_menu(mentor_id)
+    )
+    await callback.answer()
+
+
+# ===== МОЙ ПРОФИЛЬ МЕНТОРА =====
+
+@router.callback_query(F.data == "mentor:profile")
+async def callback_mentor_profile(callback: CallbackQuery):
+    mentor = get_mentor(callback.from_user.id)
+
+    if not mentor:
+        await callback.answer("⚠️ Ты не ментор. Стань ментором через /mentor", show_alert=True)
+        return
+
+    uid, games, roles, time, description, is_active, rating, sessions, created_at = mentor
+
+    await callback.message.edit_text(
+        f"🎓 <b>Твой профиль ментора</b>\n\n"
+        f"🎮 Игры: {games}\n"
+        f"🎯 Роли: {roles or '—'}\n"
+        f"🕐 Время: {time or '—'}\n"
+        f"📝 Описание: {description or '—'}\n\n"
+        f"⭐ Рейтинг: {rating}/5\n"
+        f"📊 Сессий: {sessions}\n\n"
+        f"Чтобы обновить профиль — стань ментором заново.",
+        parse_mode="HTML",
+        reply_markup=mentor_menu()
+    )
+    await callback.answer()
+
+
+# ===== ПЕРЕСТАТЬ БЫТЬ МЕНТОРОМ =====
+
+@router.callback_query(F.data == "mentor:leave")
+async def callback_mentor_leave(callback: CallbackQuery):
+    if not is_mentor(callback.from_user.id):
+        await callback.answer("⚠️ Ты не ментор", show_alert=True)
+        return
+
+    success = remove_mentor(callback.from_user.id)
+
+    if success:
+        await callback.message.edit_text(
+            "✅ <b>Ты больше не ментор</b>\n\n"
+            "Если захочешь вернуться — /mentor → «Стать ментором».",
+            parse_mode="HTML",
+            reply_markup=mentor_menu()
+        )
+    else:
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+    await callback.answer()
