@@ -1549,7 +1549,7 @@ def add_match(user1_id: int, user2_id: int) -> bool:
 
 def anti_fraud_check_v1(from_user_id: int, to_user_id: int) -> dict:
     age = get_user_age_days(from_user_id)
-    if age < 0:
+    if age < 3:
         return {
             "allowed": False,
             "reason": f"Аккаунт слишком новый ({age} дн.). Нужно 3+ дня.",
