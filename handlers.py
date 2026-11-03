@@ -1977,8 +1977,9 @@ async def process_mentor_games(message: Message, state: FSMContext):
         "🎓 <b>Шаг 2/4: Роли</b>\n\n"
         "Какие роли ты можешь объяснить?\n\n"
         "Напиши через запятую, например:\n"
-        "Керри, Саппорт\n\n"
-        "Или «все» — если готов объяснить всё."
+        "<code>Керри, Саппорт</code>\n\n"
+        "Или «все» — если готов объяснить всё.",
+        parse_mode="HTML"  # ← ДОБАВИТЬ
     )
 
 
@@ -1990,7 +1991,8 @@ async def process_mentor_roles(message: Message, state: FSMContext):
     await message.answer(
         "🎓 <b>Шаг 3/4: Время</b>\n\n"
         "Когда ты обычно можешь помочь?\n\n"
-        "Например: Вечер, выходные"
+        "Например: <code>Вечер, выходные</code>",
+        parse_mode="HTML"  # ← ДОБАВИТЬ
     )
 
 
