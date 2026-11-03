@@ -1837,6 +1837,7 @@ def add_rating_v2_weighted(
 def recalculate_rating_weighted(to_user_id: int):
     """
     Пересчитывает рейтинг с учётом весов оценок.
+    Усредняет с стартовым рейтингом 5.0.
     """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -1878,16 +1879,20 @@ def recalculate_rating_weighted(to_user_id: int):
 
         score = max(0.0, min(10.0, base + bonus))
 
-        # Учитываем с весом
         w = weight if weight else 1.0
         total_weighted += score * w
         total_weight += w
 
-    if total_weight == 0:
-        conn.close()
-        return 5.0
+    # ===== УСРЕДНЕНИЕ С СТАРТОВЫМ РЕЙТИНГОМ 5.0 =====
+    # Стартовый рейтинг считается как одна оценка с весом 1.0
+    STARTING_RATING = 5.0
+    STARTING_WEIGHT = 1.0
+
+    total_weighted += STARTING_RATING * STARTING_WEIGHT
+    total_weight += STARTING_WEIGHT
 
     new_rating = round(total_weighted / total_weight, 2)
+    # ===== /УСРЕДНЕНИЕ =====
 
     cursor.execute("""
         UPDATE users SET rating = ? WHERE user_id = ?
