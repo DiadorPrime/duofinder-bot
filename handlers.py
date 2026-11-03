@@ -1990,11 +1990,10 @@ async def process_mentor_roles(message: Message, state: FSMContext):
     await state.set_state(MentorForm.time)
     await message.answer(
         "🎓 <b>Шаг 3/4: Время</b>\n\n"
-        "Когда ты обычно можешь помочь?\n\n"
+        "<i>Когда ты обычно можешь помочь?</i>\n\n"
         "Например: <code>Вечер, выходные</code>",
-        parse_mode="HTML"  # ← ДОБАВИТЬ
+        parse_mode="HTML"
     )
-
 
 @router.message(MentorForm.time, ~F.text.startswith("/"))
 async def process_mentor_time(message: Message, state: FSMContext):
@@ -2007,7 +2006,8 @@ async def process_mentor_time(message: Message, state: FSMContext):
         "• Опыт\n"
         "• Что можешь объяснить\n"
         "• Как проходят сессии\n\n"
-        "Например: Играю 5 лет, объясню механику фарма и ролей"
+        "Например: Играю 5 лет, объясню механику фарма и ролей",
+        parse_mode="HTML",
     )
 
 
