@@ -2007,7 +2007,7 @@ async def process_mentor_time(message: Message, state: FSMContext):
         "• Что можешь объяснить\n"
         "• Как проходят сессии\n\n"
         "Например: Играю 5 лет, объясню механику фарма и ролей",
-        parse_mode="HTML",
+        parse_mode="HTML"
     )
 
 
