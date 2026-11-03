@@ -1920,14 +1920,11 @@ async def cmd_mentor(message: Message):
 
 @router.callback_query(F.data == "mentor:menu")
 async def callback_mentor_menu(callback: CallbackQuery):
-    mentor_status = "🎓 Ты ментор" if is_mentor(callback.from_user.id) else "❌ Ты не ментор"
-
-    await callback.message.edit_text(
-        f"🎓 <b>Режим Ментора</b>\n\n"
-        f"Статус: {mentor_status}\n\n"
-        f"Выбери действие:",
-        parse_mode="HTML",
-        reply_markup=mentor_menu()
+    """Возврат в главное меню."""
+    await callback.message.delete()
+    await callback.message.answer(
+        "🏠 Главное меню",
+        reply_markup=main_menu()
     )
     await callback.answer()
 
