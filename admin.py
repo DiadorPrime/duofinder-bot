@@ -14,7 +14,8 @@ from database import (
     get_all_game_ranks, get_all_game_roles,
     add_game_rank, add_game_role, delete_game_rank, delete_game_role,
     get_user_age_days, is_profile_filled,
-    get_pending_notifications
+    get_pending_notifications,
+    set_user_bonus, reset_user_bonus, get_user_bonus
 )
 from admin_keyboards import (
     admin_menu, users_pagination, user_actions, rating_values, back_to_menu
@@ -213,10 +214,13 @@ async def send_user_card(message: Message, user_id: int):
     profile_filled = is_profile_filled(user_id)
     profile_status = "✅ заполнен" if profile_filled else "❌ не заполнен"
 
+    bonus = get_user_bonus(user_id)  # ← новое
+
     text = f"👤 <b>Пользователь</b>\n\n"
     text += f"ID: <code>{user_id}</code>\n"
     text += f"Статус: {hidden_status}\n"
-    text += f"⭐ Рейтинг: <b>{rating}/10</b>\n\n"
+    text += f"⭐ Рейтинг: <b>{rating}/10</b>\n"
+    text += f"🎁 Бонус: <b>{bonus}</b>\n\n"  # ← новое
     text += f"🛡 <b>Антифрод:</b>\n"
     text += f"  • Возраст: {age} дн.\n"
     text += f"  • Профиль: {profile_status}\n\n"
@@ -933,6 +937,13 @@ async def cmd_admin_help(message: Message):
         "/reports — список жалоб\n"
         "/hide_user &lt;id&gt; — скрыть игрока\n"
         "/unhide_user &lt;id&gt; — вернуть игрока\n\n"
+        "<b>Менторы:</b>\n"
+        "/mentors — список менторов\n"
+        "/del_mentor &lt;id&gt; — удалить ментора\n\n"
+        "<b>Бонусы:</b>\n"
+        "/add_bonus &lt;id&gt; &lt;значение&gt; — установить (0–0.5)\n"
+        "/remove_bonus &lt;id&gt; — сбросить\n"
+        "/get_bonus &lt;id&gt; — посмотреть\n\n"
         "<b>Жалобы (для пользователей):</b>\n"
         "/report &lt;id&gt; — пожаловаться\n"
         "/my_reports — жалобы на тебя\n\n"
@@ -947,10 +958,7 @@ async def cmd_admin_help(message: Message):
         "/chat &lt;id&gt; — диалог\n"
         "/unread — непрочитанные\n\n"
         "<b>О проекте:</b>\n"
-        "/developer — о разработчике"
-        "<b>Менторы:</b>\n"
-        "/mentors — список менторов\n"
-        "/del_mentor &lt;id&gt; — удалить ментора\n\n",
+        "/developer — о разработчике",
         parse_mode="HTML",
         reply_markup=back_to_menu()
     )
@@ -1140,3 +1148,109 @@ async def cmd_del_mentor(message: Message):
         await message.answer(f"✅ Ментор <code>{target_id}</code> удалён.", parse_mode="HTML")
     else:
         await message.answer(f"❌ Ментор <code>{target_id}</code> не найден.", parse_mode="HTML")
+
+# ===== БОНУСЫ =====
+
+@router.message(Command("add_bonus"))
+async def cmd_add_bonus(message: Message):
+    """Устанавливает бонус пользователю."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    parts = message.text.split()
+    if len(parts) < 3:
+        await message.answer(
+            "Использование: <code>/add_bonus &lt;id&gt; &lt;значение&gt;</code>\n"
+            "Например: <code>/add_bonus 123456789 0.5</code>\n\n"
+            "Максимум: 0.5",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        target_id = int(parts[1])
+        bonus = float(parts[2])
+    except ValueError:
+        await message.answer("❌ ID и бонус должны быть числами.")
+        return
+
+    if bonus < 0 or bonus > 0.5:
+        await message.answer("❌ Бонус должен быть от 0 до 0.5.")
+        return
+
+    success = set_user_bonus(target_id, bonus)
+
+    if not success:
+        await message.answer(f"❌ Пользователь <code>{target_id}</code> не найден.", parse_mode="HTML")
+        return
+
+    # Пересчитываем рейтинг
+    from database import recalculate_rating_weighted
+    new_rating = recalculate_rating_weighted(target_id)
+
+    await message.answer(
+        f"✅ Бонус <b>{bonus}</b> установлен для <code>{target_id}</code>.\n"
+        f"⭐ Новый рейтинг: <b>{new_rating}/10</b>",
+        parse_mode="HTML"
+    )
+
+
+@router.message(Command("remove_bonus"))
+async def cmd_remove_bonus(message: Message):
+    """Сбрасывает бонус пользователя."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("Использование: <code>/remove_bonus &lt;id&gt;</code>", parse_mode="HTML")
+        return
+
+    try:
+        target_id = int(parts[1])
+    except ValueError:
+        await message.answer("❌ ID должен быть числом.")
+        return
+
+    success = reset_user_bonus(target_id)
+
+    if not success:
+        await message.answer(f"❌ Пользователь <code>{target_id}</code> не найден.", parse_mode="HTML")
+        return
+
+    from database import recalculate_rating_weighted
+    new_rating = recalculate_rating_weighted(target_id)
+
+    await message.answer(
+        f"✅ Бонус сброшен для <code>{target_id}</code>.\n"
+        f"⭐ Новый рейтинг: <b>{new_rating}/10</b>",
+        parse_mode="HTML"
+    )
+
+
+@router.message(Command("get_bonus"))
+async def cmd_get_bonus(message: Message):
+    """Показывает бонус пользователя."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("Использование: <code>/get_bonus &lt;id&gt;</code>", parse_mode="HTML")
+        return
+
+    try:
+        target_id = int(parts[1])
+    except ValueError:
+        await message.answer("❌ ID должен быть числом.")
+        return
+
+    bonus = get_user_bonus(target_id)
+
+    await message.answer(
+        f"🎁 Бонус пользователя <code>{target_id}</code>: <b>{bonus}</b>",
+        parse_mode="HTML"
+    )

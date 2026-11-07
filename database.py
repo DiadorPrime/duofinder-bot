@@ -10,22 +10,23 @@ def init_db():
     cursor = conn.cursor()
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            game TEXT,
-            rank TEXT,
-            role TEXT,
-            time TEXT,
-            style TEXT DEFAULT NULL,
-            goal TEXT DEFAULT NULL,
-            voice TEXT DEFAULT NULL,
-            experience TEXT DEFAULT NULL,
-            rating REAL DEFAULT 5.0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+    CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        username TEXT,
+        game TEXT,
+        rank TEXT,
+        role TEXT,
+        time TEXT,
+        style TEXT DEFAULT NULL,
+        goal TEXT DEFAULT NULL,
+        voice TEXT DEFAULT NULL,
+        experience TEXT DEFAULT NULL,
+        bonus REAL DEFAULT 0.0,          -- ← новое поле
+        rating REAL DEFAULT 5.0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+""")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS matches (
@@ -85,6 +86,14 @@ def migrate_db():
         cursor.execute("ALTER TABLE ratings_v2 ADD COLUMN weight REAL DEFAULT 1.0")
         conn.commit()
         print("✅ Добавлено поле weight в ratings_v2")
+    except sqlite3.OperationalError:
+        pass
+
+        # Миграция bonus для users
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN bonus REAL DEFAULT 0.0")
+        conn.commit()
+        print("✅ Добавлено поле bonus в users")
     except sqlite3.OperationalError:
         pass
 
@@ -1837,10 +1846,17 @@ def add_rating_v2_weighted(
 def recalculate_rating_weighted(to_user_id: int):
     """
     Пересчитывает рейтинг с учётом весов оценок.
-    Усредняет с стартовым рейтингом 5.0.
+    Усредняет с стартовым 5.0.
+    Применяет бонус от админа.
+    Жёсткий потолок: если формула >= 9.95 → 10.0.
     """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+
+    # Получаем бонус
+    cursor.execute("SELECT bonus FROM users WHERE user_id = ?", (to_user_id,))
+    row = cursor.fetchone()
+    bonus = row[0] if row and row[0] is not None else 0.0
 
     cursor.execute("""
         SELECT stars, tags, weight FROM ratings_v2 WHERE to_user_id = ?
@@ -1857,42 +1873,48 @@ def recalculate_rating_weighted(to_user_id: int):
     for stars, tags_str, weight in rows:
         base = stars * 2.0
 
-        bonus = 0.0
+        bonus_tags = 0.0
         if tags_str:
             tags = [t.strip() for t in tags_str.split(",")]
 
             if "🧠 Ментор" in tags:
-                bonus += 1.0
+                bonus_tags += 1.0
             if "🤝 Командный" in tags:
-                bonus += 0.5
+                bonus_tags += 0.5
             if "😄 Веселый" in tags:
-                bonus += 0.5
+                bonus_tags += 0.5
             if "🎯 Хороший саппорт" in tags:
-                bonus += 0.5
+                bonus_tags += 0.5
 
             if "😡 Токсик" in tags:
-                bonus -= 2.0
+                bonus_tags -= 2.0
             if "🚪 Ливер" in tags:
-                bonus -= 3.0
+                bonus_tags -= 3.0
             if "🤐 Молчал" in tags:
-                bonus -= 0.5
+                bonus_tags -= 0.5
 
-        score = max(0.0, min(10.0, base + bonus))
+        score = max(0.0, min(10.0, base + bonus_tags))
 
         w = weight if weight else 1.0
         total_weighted += score * w
         total_weight += w
 
-    # ===== УСРЕДНЕНИЕ С СТАРТОВЫМ РЕЙТИНГОМ 5.0 =====
-    # Стартовый рейтинг считается как одна оценка с весом 1.0
+    # ===== УСРЕДНЕНИЕ С СТАРТОВЫМ 5.0 =====
     STARTING_RATING = 5.0
     STARTING_WEIGHT = 1.0
 
     total_weighted += STARTING_RATING * STARTING_WEIGHT
     total_weight += STARTING_WEIGHT
 
-    new_rating = round(total_weighted / total_weight, 2)
+    formula_rating = round(total_weighted / total_weight, 2)
     # ===== /УСРЕДНЕНИЕ =====
+
+    # ===== ЖЁСТКИЙ ПОТОЛОК + БОНУС =====
+    if formula_rating >= 9.95:
+        new_rating = 10.0
+    else:
+        new_rating = min(10.0, round(formula_rating + bonus, 2))
+    # ===== /ПОТОЛОК =====
 
     cursor.execute("""
         UPDATE users SET rating = ? WHERE user_id = ?
@@ -2138,3 +2160,37 @@ def recalculate_mentor_rating(mentor_id: int):
     conn.close()
 
     return new_rating
+
+# ===== БОНУСЫ =====
+
+def set_user_bonus(user_id: int, bonus: float) -> bool:
+    """Устанавливает бонус пользователю. Возвращает True, если удалось."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+    if not cursor.fetchone():
+        conn.close()
+        return False
+
+    bonus = max(0.0, min(0.5, bonus))  # не больше 0.5
+
+    cursor.execute("UPDATE users SET bonus = ? WHERE user_id = ?", (bonus, user_id))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def reset_user_bonus(user_id: int) -> bool:
+    """Сбрасывает бонус пользователя."""
+    return set_user_bonus(user_id, 0.0)
+
+
+def get_user_bonus(user_id: int) -> float:
+    """Возвращает бонус пользователя."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT bonus FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row and row[0] is not None else 0.0
