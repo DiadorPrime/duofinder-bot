@@ -1110,7 +1110,7 @@ async def cmd_mentors(message: Message):
         display_name = f"@{username}" if username else f"ID: {uid}"
         text += f"👤 {display_name}\n"
         text += f"   🎮 {games}\n"
-        text += f"   ⭐ {rating}/5 | 📊 {sessions} сессий\n"
+        text += f"   ⭐ {rating}/10 | 📊 {sessions} сессий\n"
         text += f"   ID: <code>{uid}</code>\n\n"
 
     await message.answer(text, parse_mode="HTML", reply_markup=back_to_menu())

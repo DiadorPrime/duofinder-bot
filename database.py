@@ -1931,6 +1931,7 @@ def init_mentors():
             from_user_id INTEGER NOT NULL,
             stars INTEGER NOT NULL,
             comment TEXT DEFAULT '',
+            weight REAL DEFAULT 1.0,
             review_date TEXT DEFAULT (date('now')),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(mentor_id, from_user_id, review_date)
@@ -1939,6 +1940,14 @@ def init_mentors():
 
     conn.commit()
     conn.close()
+
+    # Миграция: добавить weight, если нет
+    try:
+        cursor.execute("ALTER TABLE mentor_reviews ADD COLUMN weight REAL DEFAULT 1.0")
+        conn.commit()
+        print("✅ Добавлено поле weight в mentor_reviews")
+    except sqlite3.OperationalError:
+        pass
 
 
 def add_mentor(user_id: int, games: str, roles: str = "", time: str = "", description: str = "") -> bool:
@@ -2026,15 +2035,15 @@ def find_mentors(game: str = None, role: str = None, time: str = None, limit: in
     return mentors
 
 
-def add_mentor_review(mentor_id: int, from_user_id: int, stars: int, comment: str = "") -> bool:
-    """Добавляет отзыв ментору."""
+def add_mentor_review(mentor_id: int, from_user_id: int, stars: int, comment: str = "", weight: float = 1.0) -> bool:
+    """Добавляет отзыв ментору с весом."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     try:
         cursor.execute("""
-            INSERT INTO mentor_reviews (mentor_id, from_user_id, stars, comment)
-            VALUES (?, ?, ?, ?)
-        """, (mentor_id, from_user_id, stars, comment))
+            INSERT INTO mentor_reviews (mentor_id, from_user_id, stars, comment, weight)
+            VALUES (?, ?, ?, ?, ?)
+        """, (mentor_id, from_user_id, stars, comment, weight))
         conn.commit()
         conn.close()
         return True
@@ -2084,12 +2093,15 @@ def increment_mentor_sessions(mentor_id: int):
 
 
 def recalculate_mentor_rating(mentor_id: int):
-    """Пересчитывает рейтинг ментора."""
+    """
+    Пересчитывает рейтинг ментора с учётом весов.
+    Усредняет с стартовым рейтингом 5.0.
+    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT stars FROM mentor_reviews WHERE mentor_id = ?
+        SELECT stars, weight FROM mentor_reviews WHERE mentor_id = ?
     """, (mentor_id,))
     rows = cursor.fetchall()
 
@@ -2097,9 +2109,24 @@ def recalculate_mentor_rating(mentor_id: int):
         conn.close()
         return 5.0
 
-    total = sum(row[0] for row in rows)
-    count = len(rows)
-    new_rating = round(total / count, 2)
+    total_weighted = 0.0
+    total_weight = 0.0
+
+    for stars, weight in rows:
+        score = stars * 2.0  # 1⭐ → 2, 5⭐ → 10
+        w = weight if weight else 1.0
+        total_weighted += score * w
+        total_weight += w
+
+    # ===== УСРЕДНЕНИЕ С СТАРТОВЫМ 5.0 =====
+    STARTING_RATING = 5.0
+    STARTING_WEIGHT = 1.0
+
+    total_weighted += STARTING_RATING * STARTING_WEIGHT
+    total_weight += STARTING_WEIGHT
+
+    new_rating = round(total_weighted / total_weight, 2)
+    # ===== /УСРЕДНЕНИЕ =====
 
     cursor.execute("""
         UPDATE mentors SET rating = ? WHERE user_id = ?

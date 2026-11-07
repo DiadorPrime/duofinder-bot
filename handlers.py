@@ -2181,7 +2181,15 @@ async def callback_mentor_review(callback: CallbackQuery):
     stars = int(parts[2])
     mentor_id = int(parts[3])
 
-    success = add_mentor_review(mentor_id, callback.from_user.id, stars)
+    # ===== АНТИФРОД УРОВЕНЬ 2: вес оценки =====
+    fraud_check = anti_fraud_check_v2(callback.from_user.id)
+    weight = fraud_check["weight"]
+    flags = fraud_check["flags"]
+    # ===== /АНТИФРОД =====
+
+    success = add_mentor_review(
+        mentor_id, callback.from_user.id, stars, weight=weight
+    )
 
     if not success:
         await callback.answer("⚠️ Ты уже оценивал этого ментора сегодня.", show_alert=True)
@@ -2190,10 +2198,19 @@ async def callback_mentor_review(callback: CallbackQuery):
     new_rating = recalculate_mentor_rating(mentor_id)
     increment_mentor_sessions(mentor_id)
 
+    # Информация о весе — только если снижен
+    weight_info = ""
+    if weight < 1.0:
+        weight_info = (
+            f"\n\n⚠️ <b>Вес оценки снижен: {weight}</b>\n"
+            f"<i>Причина: {', '.join(flags)}</i>"
+        )
+
     await callback.message.edit_text(
         f"✅ <b>Спасибо за оценку!</b>\n\n"
         f"Ты оценил ментора на {stars}/5.\n"
-        f"Новый рейтинг: {new_rating}/5",
+        f"Новый рейтинг: <b>{new_rating}/10</b>"
+        f"{weight_info}",
         parse_mode="HTML"
     )
     await callback.answer("✅ Оценка сохранена")
