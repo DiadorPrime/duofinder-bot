@@ -1938,16 +1938,17 @@ def init_mentors():
         )
     """)
 
-    conn.commit()
-    conn.close()
-
-    # Миграция: добавить weight, если нет
+    # ===== МИГРАЦИЯ: добавить weight, если нет =====
     try:
         cursor.execute("ALTER TABLE mentor_reviews ADD COLUMN weight REAL DEFAULT 1.0")
         conn.commit()
         print("✅ Добавлено поле weight в mentor_reviews")
     except sqlite3.OperationalError:
         pass
+    # ===== /МИГРАЦИЯ =====
+
+    conn.commit()
+    conn.close()
 
 
 def add_mentor(user_id: int, games: str, roles: str = "", time: str = "", description: str = "") -> bool:
@@ -2095,7 +2096,8 @@ def increment_mentor_sessions(mentor_id: int):
 def recalculate_mentor_rating(mentor_id: int):
     """
     Пересчитывает рейтинг ментора с учётом весов.
-    Усредняет с стартовым рейтингом 5.0.
+    Усредняет с стартовым рейтингом 5.0, но стартовый вес = 3.0
+    (чтобы рейтинг рос медленнее, чем у пользователей).
     """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -2118,9 +2120,9 @@ def recalculate_mentor_rating(mentor_id: int):
         total_weighted += score * w
         total_weight += w
 
-    # ===== УСРЕДНЕНИЕ С СТАРТОВЫМ 5.0 =====
+    # ===== УСРЕДНЕНИЕ С СТАРТОВЫМ 5.0, НО ВЕС = 3.0 =====
     STARTING_RATING = 5.0
-    STARTING_WEIGHT = 1.0
+    STARTING_WEIGHT = 3.0  # ← было 1.0, стало 3.0
 
     total_weighted += STARTING_RATING * STARTING_WEIGHT
     total_weight += STARTING_WEIGHT
