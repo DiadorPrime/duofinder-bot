@@ -1950,7 +1950,12 @@ async def callback_mentor_become(callback: CallbackQuery, state: FSMContext):
         await callback.answer("⚠️ Сначала заполни профиль: /profile", show_alert=True)
         return
 
-    rating = user[11] if user and len(user) > 11 else 5.0
+    # ===== ПРАВИЛЬНОЕ ПОЛУЧЕНИЕ РЕЙТИНГА =====
+    from database import get_user_rating
+    rating = get_user_rating(callback.from_user.id)
+    if rating is None:
+        rating = 5.0
+    # ===== /ПОЛУЧЕНИЕ =====
 
     if rating < 9.8:
         await callback.answer(
