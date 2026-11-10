@@ -357,10 +357,17 @@ async def cmd_me(message: Message):
     goal = user[7] if len(user) > 7 else None
     voice = user[8] if len(user) > 8 else None
     experience = user[9] if len(user) > 9 else None
-    bonus = user[10] if len(user) > 10 else 0.0
-    rating = user[11] if len(user) > 11 else 5.0
 
-    await message.answer(
+    # ===== ПРАВИЛЬНОЕ ПОЛУЧЕНИЕ РЕЙТИНГА И БОНУСА =====
+    from database import get_user_rating, get_user_bonus
+    rating = get_user_rating(message.from_user.id) or 5.0
+    bonus = get_user_bonus(message.from_user.id) or 0.0
+    # ===== /ПОЛУЧЕНИЕ =====
+
+    # Показываем бонус, только если он есть
+    bonus_str = f"🎁 Бонус: {bonus}" if bonus > 0 else ""
+
+    text = (
         f"👤 Твой профиль:\n\n"
         f"🎮 Игра: {game}\n"
         f"🏆 Ранг: {rank}\n"
@@ -370,10 +377,13 @@ async def cmd_me(message: Message):
         f"🎯 Цель: {goal or '—'}\n"
         f"🎤 Голос: {voice or '—'}\n"
         f"📊 Опыт: {experience or '—'}\n"
-        f"⭐ Рейтинг: {rating}/10\n"
-        f"🎁 Бонус: {bonus}"
+        f"⭐ Рейтинг: {rating}/10"
     )
 
+    if bonus_str:
+        text += f"\n{bonus_str}"
+
+    await message.answer(text)
 
 # ===== О РАЗРАБОТЧИКЕ =====
 
@@ -1910,8 +1920,8 @@ async def cmd_mentor(message: Message):
 
     mentor_status = "🎓 Ты ментор" if is_mentor(message.from_user.id) else "❌ Ты не ментор"
 
-    user = get_profile(message.from_user.id)
-    rating = user[11] if user and len(user) > 11 else 5.0
+    from database import get_user_rating
+    rating = get_user_rating(message.from_user.id) or 5.0
 
     await message.answer(
         f"🎓 <b>Режим Ментора</b>\n\n"
@@ -1950,12 +1960,10 @@ async def callback_mentor_become(callback: CallbackQuery, state: FSMContext):
         await callback.answer("⚠️ Сначала заполни профиль: /profile", show_alert=True)
         return
 
-    # ===== ПРАВИЛЬНОЕ ПОЛУЧЕНИЕ РЕЙТИНГА =====
     from database import get_user_rating
     rating = get_user_rating(callback.from_user.id)
     if rating is None:
         rating = 5.0
-    # ===== /ПОЛУЧЕНИЕ =====
 
     if rating < 9.8:
         await callback.answer(
