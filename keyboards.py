@@ -175,6 +175,9 @@ def filter_main_menu():
                 InlineKeyboardButton(text="🚫 Без токсиков", callback_data="filter:no_toxic"),
             ],
             [
+                InlineKeyboardButton(text="🎓 Найти ментора", callback_data="filter:mentor"),
+            ],
+            [
                 InlineKeyboardButton(text="🔍 Все фильтры", callback_data="filter:all"),
             ],
             [

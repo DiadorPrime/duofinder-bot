@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -640,6 +640,30 @@ async def filter_no_toxic(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
+@router.callback_query(F.data == "filter:mentor")
+async def filter_mentor(callback: CallbackQuery, state: FSMContext):
+    """Краткое объяснение, кто такие менторы, и переход к поиску."""
+    await callback.message.edit_text(
+        "🎓 <b>Кто такие менторы?</b>\n\n"
+        "Ментор — это <b>опытный игрок</b>, который готов помочь новичкам:\n"
+        "• Объяснить механику игры\n"
+        "• Показать роли и тактики\n"
+        "• Сыграть вместе и подсказать\n\n"
+        "<b>Требования к менторам:</b>\n"
+        "• Рейтинг 9.8+\n"
+        "• Заполненный профиль\n"
+        "• Опыт в игре\n\n"
+        "Если хочешь <b>стать ментором</b> — /mentor → «Стать ментором».\n\n"
+        "Нажми «Продолжить», чтобы найти ментора.",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔍 Продолжить", callback_data="mentor:find")],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="filter:menu")],
+            ]
+        )
+    )
+    await callback.answer()
 
 @router.callback_query(F.data == "filter:style")
 async def filter_style(callback: CallbackQuery, state: FSMContext):
