@@ -2445,7 +2445,7 @@ async def callback_mentor_leave(callback: CallbackQuery):
         await callback.answer("⚠️ Ты не ментор", show_alert=True)
         return
 
-success = remove_mentor(callback.from_user.id)
+    success = remove_mentor(callback.from_user.id)
 
     if success:
         await callback.message.edit_text(
