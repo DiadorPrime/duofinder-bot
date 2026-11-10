@@ -745,3 +745,81 @@ def mentor_actions_menu(mentor_id: int):
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="mentor:search")],
         ]
     )
+    
+ # ===== МЕНТОР: ВЫБОР ИГР И РОЛЕЙ =====
+
+ def mentor_games_menu():
+     """Кнопки выбора игр для ментора (мульти-выбор)."""
+     games = get_active_games()
+
+     keyboard = []
+     row = []
+     for game_id, name, emoji in games:
+         row.append(InlineKeyboardButton(
+             text=f"{emoji} {name}",
+             callback_data=f"mentor_game_toggle:{name}"
+         ))
+         if len(row) == 2:
+             keyboard.append(row)
+             row = []
+     if row:
+         keyboard.append(row)
+
+     keyboard.append([InlineKeyboardButton(text="✅ Готово", callback_data="mentor_games_done")])
+     keyboard.append([InlineKeyboardButton(text="❌ Отмена", callback_data="mentor:menu")])
+
+     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+ def mentor_roles_menu(game_name: str, selected_roles: list = None):
+     """Кнопки выбора ролей для ментора (мульти-выбор)."""
+     if selected_roles is None:
+         selected_roles = []
+
+     roles = get_game_roles(game_name)
+
+     if not roles:
+         return None
+
+     keyboard = []
+     row = []
+     for role in roles:
+         label = f"✅ {role}" if role in selected_roles else role
+         row.append(InlineKeyboardButton(
+             text=label,
+             callback_data=f"mentor_role_toggle:{role}"
+         ))
+         if len(row) == 2:
+             keyboard.append(row)
+             row = []
+     if row:
+         keyboard.append(row)
+
+     keyboard.append([InlineKeyboardButton(text="✅ Готово", callback_data="mentor_roles_done")])
+     keyboard.append([InlineKeyboardButton(text="❌ Отмена", callback_data="mentor:menu")])
+
+     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+ def mentor_time_menu():
+     """Кнопки выбора времени для ментора (мульти-выбор)."""
+     times = ["Утро", "День", "Вечер", "Ночь"]
+
+     keyboard = []
+     row = []
+     for t in times:
+         row.append(InlineKeyboardButton(
+             text=t,
+             callback_data=f"mentor_time_toggle:{t}"
+         ))
+         if len(row) == 2:
+             keyboard.append(row)
+             row = []
+     if row:
+         keyboard.append(row)
+
+     keyboard.append([InlineKeyboardButton(text="✅ Готово", callback_data="mentor_time_done")])
+     keyboard.append([InlineKeyboardButton(text="❌ Отмена", callback_data="mentor:menu")])
+
+     return InlineKeyboardMarkup(inline_keyboard=keyboard):
+  

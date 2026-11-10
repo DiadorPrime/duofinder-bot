@@ -37,7 +37,8 @@ from keyboards import (
     developer_menu,
     style_menu, goal_menu, voice_menu, experience_menu,
     filter_style_menu, filter_goal_menu, filter_voice_menu, filter_experience_menu,
-    mentor_menu, mentor_find_menu, mentor_review_menu, mentor_actions_menu
+    mentor_menu, mentor_find_menu, mentor_review_menu, mentor_actions_menu,
+    mentor_games_menu, mentor_roles_menu, mentor_time_menu
 )
 
 router = Router()
@@ -70,6 +71,7 @@ class FilterForm(StatesGroup):
 class RatingForm(StatesGroup):
     stars = State()
     tags = State()
+
 
 class MentorForm(StatesGroup):
     games = State()
@@ -109,6 +111,7 @@ async def cmd_start(message: Message, state: FSMContext):
         "/me — твой профиль\n"
         "/rate &lt;id&gt; — оценить напарника\n"
         "/report &lt;id&gt; — пожаловаться\n"
+        "/mentor — режим Ментора\n"
         "/my_rating — твоя статистика\n"
         "/inbox — входящие\n"
         "/help — все команды\n"
@@ -144,6 +147,8 @@ async def cmd_help(message: Message):
         "<b>Жалобы:</b>\n"
         "/report &lt;id&gt; — пожаловаться\n"
         "/my_reports — жалобы на тебя\n\n"
+        "<b>Ментор:</b>\n"
+        "/mentor — режим Ментора\n\n"
         "<b>О проекте:</b>\n"
         "/developer — о разработчике",
         parse_mode="HTML",
@@ -352,7 +357,8 @@ async def cmd_me(message: Message):
     goal = user[7] if len(user) > 7 else None
     voice = user[8] if len(user) > 8 else None
     experience = user[9] if len(user) > 9 else None
-    rating = user[10] if len(user) > 10 else 5.0
+    bonus = user[10] if len(user) > 10 else 0.0
+    rating = user[11] if len(user) > 11 else 5.0
 
     await message.answer(
         f"👤 Твой профиль:\n\n"
@@ -364,7 +370,8 @@ async def cmd_me(message: Message):
         f"🎯 Цель: {goal or '—'}\n"
         f"🎤 Голос: {voice or '—'}\n"
         f"📊 Опыт: {experience or '—'}\n"
-        f"⭐ Рейтинг: {rating}/10"
+        f"⭐ Рейтинг: {rating}/10\n"
+        f"🎁 Бонус: {bonus}"
     )
 
 
@@ -1594,7 +1601,6 @@ async def rating_save(callback: CallbackQuery, state: FSMContext):
     tags = data.get("tags", [])
     tags_str = ",".join(tags)
 
-    # ===== АНТИФРОД. УРОВЕНЬ 1 (уже проверен в cmd_rate) =====
     # ===== АНТИФРОД. УРОВЕНЬ 2: расчёт веса =====
     fraud_check = anti_fraud_check_v2(callback.from_user.id)
     weight = fraud_check["weight"]
@@ -1687,7 +1693,7 @@ async def cmd_my_rating(message: Message):
         return
 
     user = get_profile(message.from_user.id)
-    rating = user[10] if user and len(user) > 10 else 5.0
+    rating = user[11] if user and len(user) > 11 else 5.0
 
     text = f"⭐ <b>Твоя статистика оценок</b>\n\n"
     text += f"Средняя оценка: <b>{stats['avg_stars']}/5</b>\n"
@@ -1895,6 +1901,7 @@ async def cmd_my_reports(message: Message):
 
     await message.answer(text, parse_mode="HTML")
 
+
 # ===== МЕНТОР =====
 
 @router.message(Command("mentor"))
@@ -1904,7 +1911,7 @@ async def cmd_mentor(message: Message):
     mentor_status = "🎓 Ты ментор" if is_mentor(message.from_user.id) else "❌ Ты не ментор"
 
     user = get_profile(message.from_user.id)
-    rating = user[10] if user and len(user) > 10 else 5.0
+    rating = user[11] if user and len(user) > 11 else 5.0
 
     await message.answer(
         f"🎓 <b>Режим Ментора</b>\n\n"
@@ -1938,14 +1945,12 @@ async def callback_mentor_become(callback: CallbackQuery, state: FSMContext):
         await callback.answer("⚠️ Ты уже ментор", show_alert=True)
         return
 
-    # Проверка: профиль заполнен
     user = get_profile(callback.from_user.id)
     if not user or not user[2]:
         await callback.answer("⚠️ Сначала заполни профиль: /profile", show_alert=True)
         return
 
-    # ===== ПРОВЕРКА РЕЙТИНГА 9.8+ =====
-    rating = user[10] if user and len(user) > 10 else 5.0
+    rating = user[11] if user and len(user) > 11 else 5.0
 
     if rating < 9.8:
         await callback.answer(
@@ -1954,72 +1959,228 @@ async def callback_mentor_become(callback: CallbackQuery, state: FSMContext):
             show_alert=True
         )
         return
-    # ===== /ПРОВЕРКА =====
 
     await state.set_state(MentorForm.games)
+    await state.update_data(
+        mentor_games=[],
+        mentor_roles={},
+        mentor_time=[],
+    )
 
     await callback.message.edit_text(
         "🎓 <b>Стать ментором</b>\n\n"
-        "Шаг 1/4: В каких играх ты можешь быть ментором?\n\n"
-        "Напиши через запятую, например:\n"
-        "Dota 2, CS2",
-        parse_mode="HTML"
+        "Шаг 1/4: <b>Выбери игры</b>, в которых можешь быть ментором.\n\n"
+        "Нажимай на игры, чтобы добавить/убрать.\n"
+        "Когда выберешь все — нажми «✅ Готово».",
+        parse_mode="HTML",
+        reply_markup=mentor_games_menu()
     )
     await callback.answer()
 
 
-@router.message(MentorForm.games, ~F.text.startswith("/"))
-async def process_mentor_games(message: Message, state: FSMContext):
-    await state.update_data(games=message.text.strip())
+@router.callback_query(F.data.startswith("mentor_game_toggle:"))
+async def callback_mentor_game_toggle(callback: CallbackQuery, state: FSMContext):
+    game_name = callback.data.split(":", 1)[1]
 
+    data = await state.get_data()
+    selected = data.get("mentor_games", [])
+
+    if game_name in selected:
+        selected.remove(game_name)
+    else:
+        selected.append(game_name)
+
+    await state.update_data(mentor_games=selected)
+
+    await callback.message.edit_text(
+        "🎓 <b>Стать ментором</b>\n\n"
+        "Шаг 1/4: <b>Выбери игры</b>, в которых можешь быть ментором.\n\n"
+        f"Выбрано: <b>{', '.join(selected) if selected else 'ничего'}</b>\n\n"
+        "Нажимай на игры, чтобы добавить/убрать.\n"
+        "Когда выберешь все — нажми «✅ Готово».",
+        parse_mode="HTML",
+        reply_markup=mentor_games_menu()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "mentor_games_done")
+async def callback_mentor_games_done(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    selected = data.get("mentor_games", [])
+
+    if not selected:
+        await callback.answer("⚠️ Выбери хотя бы одну игру", show_alert=True)
+        return
+
+    first_game = selected[0]
+    await state.update_data(
+        mentor_current_game=first_game,
+        mentor_games_queue=selected.copy(),
+        mentor_roles={},
+    )
     await state.set_state(MentorForm.roles)
-    await message.answer(
-        "🎓 <b>Шаг 2/4: Роли</b>\n\n"
-        "Какие роли ты можешь объяснить?\n\n"
-        "Напиши через запятую, например:\n"
-        "<code>Керри, Саппорт</code>\n\n"
-        "Или «все» — если готов объяснить всё.",
-        parse_mode="HTML"  # ← ДОБАВИТЬ
+
+    await callback.message.edit_text(
+        f"🎓 <b>Стать ментором</b>\n\n"
+        f"Шаг 2/4: <b>Выбери роли для {first_game}</b>.\n\n"
+        f"Нажимай на роли, чтобы добавить/убрать.\n"
+        f"Когда выберешь — нажми «✅ Готово».",
+        parse_mode="HTML",
+        reply_markup=mentor_roles_menu(first_game, [])
     )
+    await callback.answer()
 
 
-@router.message(MentorForm.roles, ~F.text.startswith("/"))
-async def process_mentor_roles(message: Message, state: FSMContext):
-    await state.update_data(roles=message.text.strip())
+@router.callback_query(F.data.startswith("mentor_role_toggle:"))
+async def callback_mentor_role_toggle(callback: CallbackQuery, state: FSMContext):
+    role_name = callback.data.split(":", 1)[1]
 
-    await state.set_state(MentorForm.time)
-    await message.answer(
-        "🎓 <b>Шаг 3/4: Время</b>\n\n"
-        "<i>Когда ты обычно можешь помочь?</i>\n\n"
-        "Например: <code>Вечер, выходные</code>",
-        parse_mode="HTML"
+    data = await state.get_data()
+    current_game = data.get("mentor_current_game")
+    roles_dict = data.get("mentor_roles", {})
+
+    if current_game not in roles_dict:
+        roles_dict[current_game] = []
+
+    if role_name in roles_dict[current_game]:
+        roles_dict[current_game].remove(role_name)
+    else:
+        roles_dict[current_game].append(role_name)
+
+    await state.update_data(mentor_roles=roles_dict)
+
+    selected = roles_dict.get(current_game, [])
+
+    await callback.message.edit_text(
+        f"🎓 <b>Стать ментором</b>\n\n"
+        f"Шаг 2/4: <b>Выбери роли для {current_game}</b>.\n\n"
+        f"Выбрано: <b>{', '.join(selected) if selected else 'ничего'}</b>\n\n"
+        f"Нажимай на роли, чтобы добавить/убрать.\n"
+        f"Когда выберешь — нажми «✅ Готово».",
+        parse_mode="HTML",
+        reply_markup=mentor_roles_menu(current_game, selected)
     )
+    await callback.answer()
 
-@router.message(MentorForm.time, ~F.text.startswith("/"))
-async def process_mentor_time(message: Message, state: FSMContext):
-    await state.update_data(time=message.text.strip())
+
+@router.callback_query(F.data == "mentor_roles_done")
+async def callback_mentor_roles_done(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    queue = data.get("mentor_games_queue", [])
+    roles_dict = data.get("mentor_roles", {})
+    current_game = data.get("mentor_current_game")
+
+    if current_game and not roles_dict.get(current_game):
+        await callback.answer("⚠️ Выбери хотя бы одну роль для этой игры", show_alert=True)
+        return
+
+    if current_game in queue:
+        queue.remove(current_game)
+
+    if queue:
+        next_game = queue[0]
+        await state.update_data(
+            mentor_current_game=next_game,
+            mentor_games_queue=queue,
+        )
+
+        await callback.message.edit_text(
+            f"🎓 <b>Стать ментором</b>\n\n"
+            f"Шаг 2/4: <b>Выбери роли для {next_game}</b>.\n\n"
+            f"Нажимай на роли, чтобы добавить/убрать.\n"
+            f"Когда выберешь — нажми «✅ Готово».",
+            parse_mode="HTML",
+            reply_markup=mentor_roles_menu(next_game, roles_dict.get(next_game, []))
+        )
+    else:
+        await state.set_state(MentorForm.time)
+
+        await callback.message.edit_text(
+            "🎓 <b>Стать ментором</b>\n\n"
+            "Шаг 3/4: <b>Выбери время</b>, когда можешь помочь.\n\n"
+            "Нажимай на время, чтобы добавить/убрать.\n"
+            "Когда выберешь — нажми «✅ Готово».",
+            parse_mode="HTML",
+            reply_markup=mentor_time_menu()
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("mentor_time_toggle:"))
+async def callback_mentor_time_toggle(callback: CallbackQuery, state: FSMContext):
+    time_val = callback.data.split(":", 1)[1]
+
+    data = await state.get_data()
+    selected = data.get("mentor_time", [])
+
+    if time_val in selected:
+        selected.remove(time_val)
+    else:
+        selected.append(time_val)
+
+    await state.update_data(mentor_time=selected)
+
+    await callback.message.edit_text(
+        "🎓 <b>Стать ментором</b>\n\n"
+        "Шаг 3/4: <b>Выбери время</b>, когда можешь помочь.\n\n"
+        f"Выбрано: <b>{', '.join(selected) if selected else 'ничего'}</b>\n\n"
+        "Нажимай на время, чтобы добавить/убрать.\n"
+        "Когда выберешь — нажми «✅ Готово».",
+        parse_mode="HTML",
+        reply_markup=mentor_time_menu()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "mentor_time_done")
+async def callback_mentor_time_done(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    selected = data.get("mentor_time", [])
+
+    if not selected:
+        await callback.answer("⚠️ Выбери хотя бы одно время", show_alert=True)
+        return
 
     await state.set_state(MentorForm.description)
-    await message.answer(
-        "🎓 <b>Шаг 4/4: Описание</b>\n\n"
+
+    await callback.message.edit_text(
+        "🎓 <b>Стать ментором</b>\n\n"
+        "Шаг 4/4: <b>Описание</b>.\n\n"
         "Расскажи о себе кратко:\n"
         "• Опыт\n"
         "• Что можешь объяснить\n"
         "• Как проходят сессии\n\n"
-        "Например: Играю 5 лет, объясню механику фарма и ролей",
+        "Например: <code>Играю 5 лет, объясню механику фарма и ролей</code>",
         parse_mode="HTML"
     )
+    await callback.answer()
 
 
 @router.message(MentorForm.description, ~F.text.startswith("/"))
 async def process_mentor_description(message: Message, state: FSMContext):
     data = await state.get_data()
 
+    games_list = data.get("mentor_games", [])
+    roles_dict = data.get("mentor_roles", {})
+    time_list = data.get("mentor_time", [])
+
+    games_str = ", ".join(games_list)
+
+    roles_parts = []
+    for game, roles in roles_dict.items():
+        if roles:
+            roles_parts.append(f"{game}: {', '.join(roles)}")
+    roles_str = "; ".join(roles_parts) if roles_parts else "все"
+
+    time_str = ", ".join(time_list)
+
     success = add_mentor(
         user_id=message.from_user.id,
-        games=data.get("games", ""),
-        roles=data.get("roles", ""),
-        time=data.get("time", ""),
+        games=games_str,
+        roles=roles_str,
+        time=time_str,
         description=message.text.strip()
     )
 
@@ -2028,9 +2189,9 @@ async def process_mentor_description(message: Message, state: FSMContext):
     if success:
         await message.answer(
             "✅ <b>Ты стал ментором!</b>\n\n"
-            f"🎮 Игры: {data.get('games', '—')}\n"
-            f"🎯 Роли: {data.get('roles', '—')}\n"
-            f"🕐 Время: {data.get('time', '—')}\n"
+            f"🎮 Игры: {games_str}\n"
+            f"🎯 Роли: {roles_str}\n"
+            f"🕐 Время: {time_str}\n"
             f"📝 Описание: {message.text.strip()}\n\n"
             f"Теперь новички могут найти тебя через /mentor.",
             parse_mode="HTML",
@@ -2114,7 +2275,7 @@ async def callback_mentor_search(callback: CallbackQuery, state: FSMContext):
             f"🎯 {roles or '—'}\n"
             f"🕐 {time or '—'}\n"
             f"📝 {description[:100]}{'...' if len(description) > 100 else ''}\n"
-            f"⭐ {rating}/5 | 📊 Сессий: {sessions}\n"
+            f"⭐ {rating}/10 | 📊 Сессий: {sessions}\n"
             f"✍️ /msg_{uid}\n\n"
         )
 
@@ -2147,7 +2308,7 @@ async def callback_mentor_view(callback: CallbackQuery):
         f"🎯 Роли: {roles or '—'}\n"
         f"🕐 Время: {time or '—'}\n"
         f"📝 Описание: {description or '—'}\n\n"
-        f"⭐ Рейтинг: {rating}/5\n"
+        f"⭐ Рейтинг: {rating}/10\n"
         f"📊 Сессий: {sessions}\n\n"
         f"✍️ Написать: /msg_{uid}"
     )
@@ -2198,7 +2359,6 @@ async def callback_mentor_review(callback: CallbackQuery):
     new_rating = recalculate_mentor_rating(mentor_id)
     increment_mentor_sessions(mentor_id)
 
-    # Информация о весе — только если снижен
     weight_info = ""
     if weight < 1.0:
         weight_info = (
@@ -2268,7 +2428,7 @@ async def callback_mentor_profile(callback: CallbackQuery):
         f"🎯 Роли: {roles or '—'}\n"
         f"🕐 Время: {time or '—'}\n"
         f"📝 Описание: {description or '—'}\n\n"
-        f"⭐ Рейтинг: {rating}/5\n"
+        f"⭐ Рейтинг: {rating}/10\n"
         f"📊 Сессий: {sessions}\n\n"
         f"Чтобы обновить профиль — стань ментором заново.",
         parse_mode="HTML",
@@ -2285,7 +2445,7 @@ async def callback_mentor_leave(callback: CallbackQuery):
         await callback.answer("⚠️ Ты не ментор", show_alert=True)
         return
 
-    success = remove_mentor(callback.from_user.id)
+       success = remove_mentor(callback.from_user.id)
 
     if success:
         await callback.message.edit_text(
